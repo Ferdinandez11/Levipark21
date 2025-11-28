@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Levipark - ADMIN</title>
+    <link rel="icon" href="data:,">
+    <style>
+        body { background: #111; color: #ddd; font-family: monospace; padding: 20px; }
+        
+        /* Header y Navegación */
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+        h1 { color: #e67e22; margin: 0; }
+        .nav-btn { background: #333; border: none; color: #aaa; padding: 10px 20px; cursor: pointer; font-size: 14px; margin-left: 5px; border-radius: 4px; }
+        .nav-btn.active { background: #e67e22; color: #fff; font-weight: bold; }
+        .nav-btn:hover { color: #fff; }
+
+        /* Tablas */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; background: #222; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #333; }
+        th { background: #333; color: #fff; }
+        tr:hover { background: #2a2a2a; }
+
+        select { padding: 5px; background: #111; color: #fff; border: 1px solid #444; border-radius: 4px; }
+        
+        .badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+        .bg-pendiente { background: #555; color: #fff; }
+        .bg-fabricacion { background: #f1c40f; color: #000; }
+        .bg-enviado { background: #3498db; color: #fff; }
+        .bg-entregado { background: #27ae60; color: #fff; }
+        
+        .bg-abierto { background: #e74c3c; color: #fff; }
+        .bg-resuelto { background: #27ae60; color: #fff; }
+        .bg-proceso { background: #f39c12; color: #fff; }
+
+        .btn-action { cursor: pointer; background: #4a90e2; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 12px; }
+
+        /* MODAL */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; }
+        .modal-content { background: #222; padding: 20px; border-radius: 8px; width: 500px; max-width: 90%; border: 1px solid #444; }
+        .modal-header { display: flex; justify-content: space-between; margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .item-list { max-height: 300px; overflow-y: auto; font-size: 13px; }
+        .item-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #333; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>👮‍♂️ Torre de Control</h1>
+        <div>
+            <button id="tab-orders" class="nav-btn active" onclick="switchTab('orders')">📦 Pedidos</button>
+            <button id="tab-tickets" class="nav-btn" onclick="switchTab('tickets')">🛠️ Incidencias</button>
+            <button class="nav-btn" style="background:#27ae60;" onclick="location.reload()">🔄</button>
+        </div>
+    </div>
+
+    <!-- VISTA PEDIDOS -->
+    <div id="view-orders">
+        <div id="status-msg">Cargando...</div>
+        <table>
+            <thead><tr><th>REF</th><th>Cliente</th><th>Proyecto</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <tbody id="admin-table"></tbody>
+        </table>
+    </div>
+
+    <!-- VISTA INCIDENCIAS -->
+    <div id="view-tickets" style="display:none;">
+        <div id="ticket-msg">Cargando...</div>
+        <table>
+            <thead><tr><th>Fecha</th><th>Cliente</th><th>Pedido</th><th>Tipo</th><th>Descripción</th><th>Estado</th></tr></thead>
+            <tbody id="ticket-table"></tbody>
+        </table>
+    </div>
+
+    <!-- MODAL DETALLE -->
+    <div id="detail-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="margin:0" id="modal-title">Detalle</h3>
+                <button onclick="document.getElementById('detail-modal').style.display='none'" style="background:none; border:none; color:#fff; cursor:pointer;">✕</button>
+            </div>
+            <div id="modal-items" class="item-list"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+        import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
+
+        const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+        // IMPORTANTE: Pon aquí tu email real de admin
+        const ADMIN_EMAIL = "levi21park@gmail.com"; 
+
+        async function init() {
+            const { data: { session } } = await supabase.auth.getSession();
+            
+            if(!session) { window.location.href = 'index.html'; return; }
+            if (session.user.email !== ADMIN_EMAIL) {
+                document.body.innerHTML = `<h1 style="color:red;text-align:center;margin-top:50px;">⛔ ACCESO DENEGADO</h1>`;
+                return;
+            }
+
+            loadAllOrders();
+            loadAllTickets();
+        }
+
+        window.switchTab = (tab) => {
+            document.getElementById('view-orders').style.display = tab === 'orders' ? 'block' : 'none';
+            document.getElementById('view-tickets').style.display = tab === 'tickets' ? 'block' : 'none';
+            document.getElementById('tab-orders').className = tab === 'orders' ? 'nav-btn active' : 'nav-btn';
+            document.getElementById('tab-tickets').className = tab === 'tickets' ? 'nav-btn active' : 'nav-btn';
+        };
+
+        // --- PEDIDOS ---
+        async function loadAllOrders() {
+            const { data: orders, error } = await supabase
+                .from('orders')
+                .select(`*, profiles (company_name), projects (name, data)`)
+                .order('created_at', { ascending: false });
+
+            if(error) return document.getElementById('status-msg').innerText = "Error: " + error.message;
+
+            document.getElementById('status-msg').innerText = `Total pedidos: ${orders.length}`;
+            const tbody = document.getElementById('admin-table');
+            tbody.innerHTML = "";
+            window.allOrders = orders;
+
+            orders.forEach((o, index) => {
+                const client = o.profiles?.company_name || "Desc.";
+                const proj = o.projects?.name || "Borrado";
+                const html = `
+                    <tr>
+                        <td>${o.order_ref}</td>
+                        <td style="color:#4a90e2">${client}</td>
+                        <td>${proj}</td>
+                        <td>${o.total_price.toLocaleString()} €</td>
+                        <td>
+                            <select onchange="updateOrderStatus('${o.id}', this.value)" style="border:none;background:transparent;font-weight:bold;cursor:pointer;">
+                                <option value="pendiente" ${o.status==='pendiente'?'selected':''}>🟠 Pendiente</option>
+                                <option value="fabricacion" ${o.status==='fabricacion'?'selected':''}>🔨 Fabricación</option>
+                                <option value="enviado" ${o.status==='enviado'?'selected':''}>🚚 Enviado</option>
+                                <option value="entregado" ${o.status==='entregado'?'selected':''}>✅ Entregado</option>
+                            </select>
+                        </td>
+                        <td><button class="btn-action" onclick="showDetails(${index})">👁️ Items</button></td>
+                    </tr>`;
+                tbody.innerHTML += html;
+            });
+        }
+
+        window.updateOrderStatus = async (id, val) => {
+            document.body.style.cursor = 'wait';
+            await supabase.from('orders').update({ status: val }).eq('id', id);
+            document.body.style.cursor = 'default';
+        };
+
+        // --- INCIDENCIAS ---
+        async function loadAllTickets() {
+            const tbody = document.getElementById('ticket-table');
+            tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center">Cargando incidencias...</td></tr>';
+
+            // AQUÍ ESTÁ EL CAMBIO CLAVE:
+            // Usamos 'orders!fk_tickets_orders' para forzar el camino correcto
+            // y 'profiles!fk_tickets_profiles' por si acaso
+            const { data: tickets, error } = await supabase
+                .from('tickets')
+                .select(`
+                    *,
+                    orders!fk_tickets_orders (order_ref),
+                    profiles!fk_tickets_profiles (company_name)
+                `)
+                .order('created_at', { ascending: false });
+
+            if(error) {
+                // Si falla fk_tickets_profiles, intentamos una carga más simple para que no rompa todo
+                console.error("Error detallado:", error);
+                tbody.innerHTML = `<tr><td colspan="6" style="color:red">Error SQL: ${error.message} <br> (Intenta recargar en 10 seg)</td></tr>`;
+                return;
+            }
+
+            document.getElementById('ticket-msg').innerText = `Total incidencias: ${tickets.length}`;
+            tbody.innerHTML = "";
+
+            if (!tickets || tickets.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center">No hay incidencias registradas.</td></tr>';
+                return;
+            }
+
+            tickets.forEach(t => {
+                const client = t.profiles?.company_name || "Cliente";
+                const orderRef = t.orders?.order_ref || "Ref. Borrada";
+                
+                let bgStyle = "";
+                if(t.status === 'abierto') bgStyle = "background:#e74c3c; color:white;";
+                if(t.status === 'en_proceso') bgStyle = "background:#f1c40f; color:black;";
+                if(t.status === 'resuelto') bgStyle = "background:#27ae60; color:white;";
+
+                const html = `
+                    <tr>
+                        <td>${new Date(t.created_at).toLocaleDateString()}</td>
+                        <td style="color:#4a90e2">${client}</td>
+                        <td>${orderRef}</td>
+                        <td style="text-transform:capitalize; font-weight:bold;">${t.type}</td>
+                        <td style="color:#aaa;">${t.description}</td>
+                        <td>
+                            <select onchange="updateTicketStatus('${t.id}', this.value)" style="border:none; border-radius:4px; padding:4px; font-weight:bold; cursor:pointer; ${bgStyle}">
+                                <option value="abierto" ${t.status==='abierto'?'selected':''} style="background:#fff; color:#000;">🔴 Abierto</option>
+                                <option value="en_proceso" ${t.status==='en_proceso'?'selected':''} style="background:#fff; color:#000;">🟠 En Proceso</option>
+                                <option value="resuelto" ${t.status==='resuelto'?'selected':''} style="background:#fff; color:#000;">🟢 Resuelto</option>
+                            </select>
+                        </td>
+                    </tr>`;
+                tbody.innerHTML += html;
+            });
+        }
+        window.updateTicketStatus = async (id, val) => {
+            document.body.style.cursor = 'wait';
+            await supabase.from('tickets').update({ status: val }).eq('id', id);
+            document.body.style.cursor = 'default';
+        };
+
+        // --- DETALLES ---
+        window.showDetails = (index) => {
+            const order = window.allOrders[index];
+            if (!order?.projects?.data?.items) return alert("Sin datos.");
+            const items = order.projects.data.items;
+            const container = document.getElementById('modal-items');
+            document.getElementById('modal-title').innerText = `Pedido ${order.order_ref}`;
+            container.innerHTML = items.map(i => 
+                `<div class="item-row"><span>${i.type==='floor'?'🟦':'🌳'} ${i.data.name || 'Item'}</span></div>`
+            ).join('');
+            document.getElementById('detail-modal').style.display = 'flex';
+        };
+
+        init();
+    </script>
+</body>
+</html>

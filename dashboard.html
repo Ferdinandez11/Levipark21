@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Levipark21 - Área Cliente</title>
-    <!-- Evita error 404 del favicon -->
     <link rel="icon" href="data:,">
     
     <style>
@@ -20,6 +19,7 @@
         /* Main Content */
         .main { flex: 1; padding: 40px; overflow-y: auto; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        
         .btn-new { background: #27ae60; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; display: flex; align-items: center; gap: 8px; border: none; cursor: pointer; transition: 0.2s; }
         .btn-new:hover { background: #219150; transform: translateY(-2px); }
 
@@ -37,7 +37,18 @@
         .btn-edit { border-color: #4a90e2; color: #4a90e2; }
         .btn-edit:hover { background: #4a90e2; color: white; }
 
-        /* Estado Vacio */
+        /* Tablas */
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { padding: 10px; border-bottom: 1px solid #444; color: #888; }
+        td { padding: 15px; border-bottom: 1px solid #333; }
+
+        /* MODAL SIMPLE */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: #222; padding: 25px; border-radius: 8px; width: 400px; border: 1px solid #444; }
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; margin-bottom: 5px; color: #aaa; font-size: 13px; }
+        .input-group input, .input-group select, .input-group textarea { width: 100%; padding: 10px; background: #111; border: 1px solid #444; color: #fff; border-radius: 4px; box-sizing: border-box; }
+        
         .empty-state { text-align: center; padding: 50px; color: #666; }
     </style>
 </head>
@@ -47,7 +58,7 @@
         <div class="logo"><span>🏟️</span> Levipark Hub</div>
         <a id="nav-projects" class="menu-item active">📂 Mis Proyectos</a>
         <a id="nav-orders" class="menu-item">📦 Mis Pedidos</a>
-        <a href="#" class="menu-item" onclick="alert('Próximamente: Gestión de incidencias')">🛠️ Incidencias</a>
+        <a id="nav-tickets" class="menu-item">🛠️ Incidencias</a>
         
         <div class="user-profile">
             <div style="width: 35px; height: 35px; background: #4a90e2; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;" id="user-avatar">U</div>
@@ -60,29 +71,55 @@
 
     <div class="main">
         <div class="header">
-            <h1>Mis Proyectos</h1>
-            <button class="btn-new" onclick="window.location.href='index.html'">➕ Nuevo Diseño</button>
+            <h1 id="page-title">Mis Proyectos</h1>
+            <button id="btn-main-action" class="btn-new" onclick="window.location.href='index.html'">➕ Nuevo Diseño</button>
         </div>
 
-        <div id="projects-container" class="projects-grid">
-            <!-- Aquí se inyectan las tarjetas con JS -->
-        </div>
-                <div id="orders-container" style="display: none;">
-            <table style="width: 100%; border-collapse: collapse; text-align: left;">
-                <thead>
-                    <tr style="border-bottom: 1px solid #444; color: #888;">
-                        <th style="padding: 10px;">Referencia</th>
-                        <th style="padding: 10px;">Proyecto</th>
-                        <th style="padding: 10px;">Fecha</th>
-                        <th style="padding: 10px;">Estado</th>
-                        <th style="padding: 10px;">Total</th>
-                        <th style="padding: 10px;">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody id="orders-list">
-                    <!-- Aquí se inyectarán los pedidos -->
-                </tbody>
+        <!-- SECCIÓN PROYECTOS -->
+        <div id="projects-container" class="projects-grid"></div>
+
+        <!-- SECCIÓN PEDIDOS -->
+        <div id="orders-container" style="display: none;">
+            <table>
+                <thead><tr><th>Ref</th><th>Proyecto</th><th>Fecha</th><th>Estado</th><th>Total</th><th>Acciones</th></tr></thead>
+                <tbody id="orders-list"></tbody>
             </table>
+        </div>
+
+        <!-- SECCIÓN INCIDENCIAS -->
+        <div id="tickets-container" style="display: none;">
+            <table>
+                <thead><tr><th>Ref Pedido</th><th>Tipo</th><th>Descripción</th><th>Estado</th><th>Fecha</th></tr></thead>
+                <tbody id="tickets-list"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- MODAL NUEVA INCIDENCIA -->
+    <div id="ticket-modal" class="modal">
+        <div class="modal-content">
+            <h3 style="margin-top:0">Nueva Incidencia</h3>
+            <div class="input-group">
+                <label>Selecciona el Pedido Afectado</label>
+                <select id="ticket-order-select"><option>Cargando pedidos...</option></select>
+            </div>
+            <div class="input-group">
+                <label>Tipo de problema</label>
+                <select id="ticket-type">
+                    <option value="garantia">🛡️ Garantía</option>
+                    <option value="rotura">💥 Rotura / Vandalismo</option>
+                    <option value="mantenimiento">🔧 Mantenimiento</option>
+                    <option value="otro">❓ Otro</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label>Descripción del problema</label>
+                <textarea id="ticket-desc" rows="4" placeholder="Describe qué ha pasado..."></textarea>
+            </div>
+            <div style="display:flex; justify-content:end; gap:10px;">
+                <button onclick="document.getElementById('ticket-modal').style.display='none'" class="btn-card" style="width:auto;">Cancelar</button>
+                <button id="btn-submit-ticket" class="btn-new" style="width:auto;">Enviar Reporte</button>
+            </div>
         </div>
     </div>
 
@@ -90,19 +127,14 @@
         import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
         
-        // Inicializar Supabase
         const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+        let currentUserId = null;
 
         async function init() {
-            // Verificar Sesión
             const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                // Si no hay sesión, volver al login
-                window.location.href = 'index.html'; 
-                return;
-            }
+            if (!session) { window.location.href = 'index.html'; return; }
 
-            // Cargar Perfil
+            currentUserId = session.user.id;
             const user = session.user;
             const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
             
@@ -110,194 +142,221 @@
             document.getElementById('user-name').innerText = displayName;
             document.getElementById('user-avatar').innerText = displayName[0].toUpperCase();
 
-            // Cargar Proyectos
-            loadProjects();
+            loadProjects(); // Carga inicial
 
-            // Logout
+            // LOGICA NAVEGACION
+            setupNavigation();
+
             document.getElementById('btn-logout').onclick = async () => {
                 await supabase.auth.signOut();
                 window.location.href = 'index.html';
             };
+
+            // LOGICA MODAL INCIDENCIAS
+            document.getElementById('btn-submit-ticket').onclick = createTicket;
         }
+
+        function setupNavigation() {
+            const tabs = {
+                'nav-projects': { title: 'Mis Proyectos', container: 'projects-container', actionBtn: '➕ Nuevo Diseño', action: () => window.location.href='index.html' },
+                'nav-orders': { title: 'Mis Pedidos', container: 'orders-container', actionBtn: null },
+                'nav-tickets': { title: 'Incidencias', container: 'tickets-container', actionBtn: '➕ Nueva Incidencia', action: openTicketModal }
+            };
+
+            Object.keys(tabs).forEach(id => {
+                document.getElementById(id).onclick = () => {
+                    // Reset UI
+                    document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
+                    ['projects-container', 'orders-container', 'tickets-container'].forEach(cid => document.getElementById(cid).style.display = 'none');
+                    
+                    // Activate current
+                    document.getElementById(id).classList.add('active');
+                    document.getElementById(tabs[id].container).style.display = (id === 'nav-projects' ? 'grid' : 'block');
+                    document.getElementById('page-title').innerText = tabs[id].title;
+                    
+                    const btn = document.getElementById('btn-main-action');
+                    if (tabs[id].actionBtn) {
+                        btn.style.display = 'flex';
+                        btn.innerText = tabs[id].actionBtn;
+                        btn.onclick = tabs[id].action;
+                    } else {
+                        btn.style.display = 'none';
+                    }
+
+                    // Load Data
+                    if (id === 'nav-projects') loadProjects();
+                    if (id === 'nav-orders') loadOrders();
+                    if (id === 'nav-tickets') loadTickets();
+                };
+            });
+        }
+
+        // --- CARGA DE DATOS ---
 
         async function loadProjects() {
             const container = document.getElementById('projects-container');
-            container.innerHTML = '<div style="color:#888">Cargando proyectos...</div>';
-
-            // Pedimos los proyectos del usuario actual ordenados por fecha de actualización
-            const { data: projects, error } = await supabase
-                .from('projects')
-                .select('*')
-                .order('updated_at', { ascending: false });
-
-            if (error) {
-                console.error("Error Supabase:", error);
-                container.innerHTML = `<div style="color:red">Error cargando proyectos. Revisa la consola.</div>`;
-                return;
-            }
-
+            container.innerHTML = '<div style="color:#888">Cargando...</div>';
+            const { data: projects } = await supabase.from('projects').select('*').order('updated_at', { ascending: false });
+            
             container.innerHTML = "";
-
             if (!projects || projects.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state" style="grid-column: 1/-1;">
-                        <h2>Aún no tienes proyectos</h2>
-                        <p>Empieza diseñando tu primer parque infantil.</p>
-                        <br>
-                        <button class="btn-new" onclick="window.location.href='index.html'" style="margin:0 auto; width: fit-content;">Comenzar Ahora</button>
-                    </div>`;
+                container.innerHTML = `<div class="empty-state" style="grid-column:1/-1">No hay proyectos.</div>`;
                 return;
             }
 
             projects.forEach(p => {
                 const editUrl = `index.html?project_id=${p.id}`;
                 const date = new Date(p.updated_at || p.created_at).toLocaleDateString();
-                const price = (p.total_price || 0).toLocaleString(); // Solo para mostrar
-                const rawPrice = p.total_price || 0; // Para pasar a la función
-
+                const price = (p.total_price || 0).toLocaleString();
                 const timeParam = p.updated_at ? `?t=${new Date(p.updated_at).getTime()}` : '';
-                const bgImage = p.thumbnail_url 
-                    ? `url('${p.thumbnail_url}${timeParam}')` 
-                    : "url('assets/img/placeholder_park.jpg')";
+                const bgImage = p.thumbnail_url ? `url('${p.thumbnail_url}${timeParam}')` : "url('assets/img/placeholder_park.jpg')";
                 
-                const bgStyle = `background-image: ${bgImage}; background-color:#333;`;
-
                 const html = `
                     <div class="project-card">
-                        <div class="card-img" style="${bgStyle}">
-                            ${p.thumbnail_url ? '' : '🏞️'}
-                        </div>
+                        <div class="card-img" style="background-image: ${bgImage}; background-color:#333;">${p.thumbnail_url?'':'🏞️'}</div>
                         <div class="card-body">
                             <div class="card-title">${p.name}</div>
-                            <div class="card-meta">
-                                <span>📅 ${date}</span>
-                                <span style="color: #4a90e2; font-weight:bold;">${price} €</span>
-                            </div>
+                            <div class="card-meta"><span>📅 ${date}</span><span style="color:#4a90e2;font-weight:bold;">${price} €</span></div>
                             <div class="card-actions">
                                 <a href="${editUrl}" class="btn-card btn-edit">✏️ Editar</a>
-                                <!-- NUEVO BOTÓN DE SOLICITAR -->
-                                <button class="btn-card" style="background: #e67e22; border-color: #d35400; color: white;" 
-                                    onclick="window.requestQuote('${p.id}', '${p.name}', ${rawPrice})">
-                                    🛒 Solicitar
-                                </button>
-                                <button class="btn-card" style="color:#e74c3c; border-color:#552222; flex:0;" onclick="window.deleteProject('${p.id}')">🗑️</button>
+                                <button class="btn-card" style="background:#e67e22;border-color:#d35400;color:white;" onclick="window.requestQuote('${p.id}','${p.name}',${p.total_price})">🛒 Solicitar</button>
+                                <button class="btn-card" style="color:#e74c3c;border-color:#552222;flex:0;" onclick="window.deleteProject('${p.id}')">🗑️</button>
                             </div>
                         </div>
-                    </div>
-                `;
+                    </div>`;
                 container.innerHTML += html;
             });
         }
 
         async function loadOrders() {
             const tbody = document.getElementById('orders-list');
-            tbody.innerHTML = '<tr><td colspan="6" style="padding:20px; text-align:center; color:#888;">Cargando pedidos...</td></tr>';
-
-            // Pedir pedidos a Supabase + Nombre del proyecto asociado
-            const { data: orders, error } = await supabase
+            tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center">Cargando...</td></tr>';
+            
+            // CAMBIO: Añadimos .eq('user_id', currentUserId)
+            // Esto fuerza a que solo traiga MIS pedidos, aunque sea Admin.
+            const { data: orders } = await supabase
                 .from('orders')
-                .select('*, projects(name)') // Join mágico de Supabase
+                .select('*, projects(name)')
+                .eq('user_id', currentUserId) // <--- FILTRO DE PRIVACIDAD
                 .order('created_at', { ascending: false });
 
-            if (error) {
-                console.error(error);
-                return;
-            }
-
             tbody.innerHTML = "";
-            
-            if (orders.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="padding:40px; text-align:center; color:#666;">No has realizado ningún pedido aún.</td></tr>';
-                return;
+            if (!orders || orders.length === 0) { 
+                tbody.innerHTML = '<tr><td colspan="6" style="padding:40px;text-align:center;color:#666;">Sin pedidos.</td></tr>'; 
+                return; 
             }
 
             orders.forEach(o => {
-                // Estilo del estado
-                let statusColor = '#aaa';
-                if(o.status === 'fabricacion') statusColor = '#f1c40f'; // Amarillo
-                if(o.status === 'enviado') statusColor = '#3498db'; // Azul
-                if(o.status === 'entregado') statusColor = '#27ae60'; // Verde
+                let color = '#aaa';
+                if(o.status === 'fabricacion') color = '#f1c40f';
+                if(o.status === 'enviado') color = '#3498db';
+                if(o.status === 'entregado') color = '#27ae60';
 
-                const date = new Date(o.created_at).toLocaleDateString();
-                const projectName = o.projects?.name || "Diseño eliminado";
-                
-                const html = `
-                    <tr style="border-bottom: 1px solid #333;">
-                        <td style="padding: 15px; font-weight:bold;">${o.order_ref || 'PED-???'}</td>
-                        <td style="padding: 15px;">${projectName}</td>
-                        <td style="padding: 15px;">${date}</td>
-                        <td style="padding: 15px;"><span style="color:${statusColor}; border:1px solid ${statusColor}; padding:2px 8px; border-radius:10px; font-size:12px; text-transform:uppercase;">${o.status}</span></td>
-                        <td style="padding: 15px;">${o.total_price.toLocaleString()} €</td>
-                        <td style="padding: 15px;">
-                            <button class="btn-card" style="width:auto; padding:5px 10px;">📄 Factura</button>
-                        </td>
-                    </tr>
-                `;
-                tbody.innerHTML += html;
+                tbody.innerHTML += `
+                    <tr>
+                        <td><strong>${o.order_ref}</strong></td>
+                        <td>${o.projects?.name || 'Borrado'}</td>
+                        <td>${new Date(o.created_at).toLocaleDateString()}</td>
+                        <td><span style="color:${color};border:1px solid ${color};padding:2px 8px;border-radius:10px;font-size:12px;text-transform:uppercase;">${o.status}</span></td>
+                        <td>${o.total_price.toLocaleString()} €</td>
+                        <td><button class="btn-card" style="width:auto;padding:5px;">📄 Factura</button></td>
+                    </tr>`;
             });
         }
 
-        // LOGICA DE PESTAÑAS (Añadir esto en la función init() o al final)
-        document.getElementById('nav-projects').onclick = () => {
-            document.getElementById('projects-container').style.display = 'grid';
-            document.getElementById('orders-container').style.display = 'none';
-            document.getElementById('nav-projects').classList.add('active');
-            document.getElementById('nav-orders').classList.remove('active');
-            document.querySelector('.header h1').innerText = "Mis Proyectos";
-            document.querySelector('.btn-new').style.display = 'flex'; // Mostrar botón nuevo
-        };
+        async function loadTickets() {
+            const tbody = document.getElementById('tickets-list');
+            tbody.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center">Cargando incidencias...</td></tr>';
+            
+            // CAMBIO: Añadimos .eq('user_id', currentUserId)
+            const { data: tickets } = await supabase
+                .from('tickets')
+                .select('*, orders(order_ref)')
+                .eq('user_id', currentUserId) // <--- FILTRO DE PRIVACIDAD
+                .order('created_at', { ascending: false });
 
-        document.getElementById('nav-orders').onclick = () => {
-            document.getElementById('projects-container').style.display = 'none';
-            document.getElementById('orders-container').style.display = 'block';
-            document.getElementById('nav-projects').classList.remove('active');
-            document.getElementById('nav-orders').classList.add('active');
-            document.querySelector('.header h1').innerText = "Mis Pedidos";
-            document.querySelector('.btn-new').style.display = 'none'; // Ocultar botón nuevo en pedidos
-            loadOrders(); // Cargar datos
-        };
+            tbody.innerHTML = "";
+            if (!tickets || tickets.length === 0) { 
+                tbody.innerHTML = '<tr><td colspan="5" style="padding:40px;text-align:center;color:#666;">No tienes incidencias. 👍</td></tr>'; 
+                return; 
+            }
 
-        // Función global para borrar
+            tickets.forEach(t => {
+                let color = t.status === 'abierto' ? '#e74c3c' : (t.status === 'resuelto' ? '#27ae60' : '#f1c40f');
+                tbody.innerHTML += `
+                    <tr>
+                        <td><strong>${t.orders?.order_ref || '???'}</strong></td>
+                        <td style="text-transform:capitalize">${t.type}</td>
+                        <td style="color:#aaa;">${t.description}</td>
+                        <td><span style="color:${color}; font-weight:bold;">● ${t.status}</span></td>
+                        <td>${new Date(t.created_at).toLocaleDateString()}</td>
+                    </tr>`;
+            });
+        }
+
+        // --- LOGICA DE CREACIÓN ---
+
         window.deleteProject = async (id) => {
-            if(!confirm("¿Seguro que quieres borrar este proyecto?")) return;
-            const { error } = await supabase.from('projects').delete().eq('id', id);
-            
-            if(error) alert("Error al borrar: " + error.message);
-            else loadProjects(); // Recargar lista
+            if(!confirm("¿Borrar proyecto?")) return;
+            await supabase.from('projects').delete().eq('id', id);
+            loadProjects();
         };
-        
-        // Función global para Solicitar Presupuesto
-        window.requestQuote = async (projectId, projectName, price) => {
-            // 1. Confirmación sencilla
-            if(!confirm(`¿Quieres solicitar un presupuesto formal para "${projectName}" por valor de ${price.toLocaleString()} €?`)) return;
 
-            // 2. Generar referencia aleatoria (Ej: PED-4921)
+        window.requestQuote = async (pid, pname, price) => {
+            if(!confirm(`¿Solicitar presupuesto para "${pname}"?`)) return;
             const ref = 'PED-' + Math.floor(1000 + Math.random() * 9000);
-
-            // 3. Insertar en Supabase
-            // Necesitamos el user_id. Lo sacamos de la sesión actual.
-            const { data: { session } } = await supabase.auth.getSession();
+            const { error } = await supabase.from('orders').insert([{ user_id: currentUserId, project_id: pid, order_ref: ref, total_price: price, status: 'pendiente' }]);
             
-            const { error } = await supabase.from('orders').insert([{
-                user_id: session.user.id,
-                project_id: projectId,
-                order_ref: ref,
-                total_price: price,
-                status: 'pendiente' // Estado inicial
+            if(error) alert(error.message);
+            else { alert("¡Solicitud enviada!"); document.getElementById('nav-orders').click(); }
+        };
+
+        async function openTicketModal() {
+            const select = document.getElementById('ticket-order-select');
+            select.innerHTML = '<option>Cargando...</option>';
+            document.getElementById('ticket-modal').style.display = 'flex';
+
+            // Cargar pedidos del usuario para el desplegable
+            const { data: orders } = await supabase.from('orders').select('id, order_ref, projects(name)').order('created_at', { ascending: false });
+            
+            select.innerHTML = "";
+            if(!orders || orders.length === 0) {
+                select.innerHTML = '<option value="">No tienes pedidos para reclamar</option>';
+            } else {
+                orders.forEach(o => {
+                    const option = document.createElement('option');
+                    option.value = o.id;
+                    option.innerText = `${o.order_ref} - ${o.projects?.name || 'Parque'}`;
+                    select.appendChild(option);
+                });
+            }
+        }
+
+        async function createTicket() {
+            const orderId = document.getElementById('ticket-order-select').value;
+            const type = document.getElementById('ticket-type').value;
+            const desc = document.getElementById('ticket-desc').value;
+
+            if(!orderId) return alert("Debes seleccionar un pedido.");
+            if(!desc) return alert("Describe el problema.");
+
+            const { error } = await supabase.from('tickets').insert([{
+                user_id: currentUserId,
+                order_id: orderId,
+                type: type,
+                description: desc,
+                status: 'abierto'
             }]);
 
-            if (error) {
-                alert("Error al solicitar: " + error.message);
-            } else {
-                // 4. Éxito: Cambiar a la pestaña de Pedidos automáticamente
-                alert(`¡Solicitud ${ref} creada correctamente!`);
-                
-                // Simular click en la pestaña "Mis Pedidos"
-                document.getElementById('nav-orders').click();
+            if(error) alert(error.message);
+            else {
+                document.getElementById('ticket-modal').style.display = 'none';
+                document.getElementById('ticket-desc').value = ""; // Limpiar
+                loadTickets(); // Recargar lista
+                alert("Incidencia creada correctamente.");
             }
-        };
-       
-        // Arrancar
+        }
+
         init();
     </script>
 </body>
