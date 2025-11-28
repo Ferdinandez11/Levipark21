@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 import { state, updateBudget } from './globals.js';
 import { showToast, askUser, updateLoadingText } from './utils.js';
-import { loadProjectData, resetScene } from './history.js'; // <--- Añade resetScene aquí
+import { loadProjectData, resetScene } from './history.js';
 
 let supabase = null;
 
@@ -79,28 +79,22 @@ async function handleUserLogin(user) {
     if (profile) {
         state.userProfile = profile;
     } else {
-        // Fallback si no existe perfil aún (trigger no disparado o error)
+        // Fallback si no existe perfil aún
         state.userProfile = { discount_rate: 0, company_name: "Cliente" };
     }
 
     updateUIForUser();
-    updateBudget(); // Recalcular precios con posible descuento
+    updateBudget(); 
 }
 
 function handleUserLogout() {
-    // 1. Limpiar variables de usuario
     state.currentUser = null;
     state.userProfile = null;
     state.projectToLoad = null;
     
-    // 2. Limpiar la escena 3D visualmente
     resetScene();
-
-    // 3. ELIMINAR el autoguardado del navegador
-    // Esto asegura que al dar F5 no cargue el proyecto del usuario anterior
     localStorage.removeItem('levipark_autosave');
 
-    // 4. Actualizar interfaz
     updateUIForGuest();
     updateBudget();
 }
@@ -112,7 +106,15 @@ function updateUIForUser() {
     const labelUser = document.getElementById('user-label');
     const panel = document.getElementById('auth-panel');
     
-    if(btnAuth) btnAuth.innerText = "👤 Mi Cuenta";
+    // Actualización segura de texto del botón manteniendo la estructura HTML
+    if(btnAuth) {
+        const iconSpan = btnAuth.querySelector('.icon');
+        const textSpan = btnAuth.querySelector('.text');
+        
+        if (iconSpan) iconSpan.innerText = "👤"; // Icono Usuario
+        if (textSpan) textSpan.innerText = "Mi Cuenta";
+    }
+
     if(labelUser) {
         const name = state.userProfile?.company_name || state.currentUser.email.split('@')[0];
         labelUser.innerText = `Hola, ${name}`;
@@ -131,7 +133,14 @@ function updateUIForGuest() {
     const btnAuth = document.getElementById('btn-auth-trigger');
     const labelUser = document.getElementById('user-label');
     
-    if(btnAuth) btnAuth.innerText = "🔑 Iniciar Sesión";
+    if(btnAuth) {
+        const iconSpan = btnAuth.querySelector('.icon');
+        const textSpan = btnAuth.querySelector('.text');
+        
+        if (iconSpan) iconSpan.innerText = "🔑"; // Icono Llave
+        if (textSpan) textSpan.innerText = "Iniciar Sesión";
+    }
+
     if(labelUser) labelUser.style.display = 'none';
 
     document.getElementById('btn-save-cloud').style.display = 'none';
@@ -152,7 +161,7 @@ export async function saveProjectToCloud() {
     document.getElementById('loading').style.display = 'block';
     updateLoadingText("Guardando en la nube...");
 
-    // Preparar JSON del proyecto (similar a saveProject en history.js)
+    // Preparar JSON del proyecto
     const itemsSafe = state.objectsInScene.map(obj => {
         const data = JSON.parse(JSON.stringify(obj.userData));
         if(data.assetId && data.modelBase64) delete data.modelBase64; 
@@ -169,7 +178,7 @@ export async function saveProjectToCloud() {
         date: new Date().toISOString(),
         totalPrice: state.totalPrice,
         items: itemsSafe,
-        assetCache: state.assetCache // Importante para recuperar modelos
+        assetCache: state.assetCache 
     };
 
     // Subir a Supabase
@@ -181,7 +190,7 @@ export async function saveProjectToCloud() {
                 name: name,
                 data: projectData,
                 total_price: state.totalPrice,
-                status: 'draft' // Por defecto borrador
+                status: 'draft'
             }
         ])
         .select();
