@@ -88,9 +88,9 @@ export function renderLines() {
     // Aquí defines manualmente las fotos para tus líneas.
     // El nombre (izquierda) debe ser EXACTO al de la columna LINEA del CSV.
     const LINE_COVERS = {
-        "Línea Clásica": "assets/img/LOGO LÍNEA QUBIQ.png",
-        "Línea Futura": "assets/img/LOGO LÍNEA MEDIEVAL.png",
-        "Mobiliario": "assets/img/LOGO LÍNEA JURÁSICA.png",
+        "Línea Clásica": "https://levipark21.es/wp-content/uploads/2025/10/LOGO-LINEA-QUBIQ.png",
+        "Línea Futura": "https://levipark21.es/wp-content/uploads/2024/03/Logo-Espacial-02-300x300.png",
+        "Mobiliario": "https://levipark21.es/wp-content/uploads/2022/03/LOGO-LEBIURBAN-300x175.png",
         // Si añades más líneas en el futuro, ponlas aquí
     };
     // ----------------------------------
