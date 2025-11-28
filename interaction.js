@@ -1,8 +1,9 @@
-// interaction.js
+// --- START OF FILE interaction.js ---
+
 import * as THREE from 'three';
 import { OBB } from 'three/addons/math/OBB.js';
 import { state, updateBudget } from './globals.js';
-import { showToast } from './utils.js';
+import { showToast, disposeHierarchy } from './utils.js';
 import { saveHistory } from './history.js';
 
 export function selectObject(o) { 
@@ -36,25 +37,19 @@ export function deselectObject() {
 
 export function deleteSelected() { 
     if(state.selectedObject && !state.selectedObject.userData.locked){
-        // LIMPIEZA DE MEMORIA (IMPORTANTE)
-        if(state.selectedObject.geometry) state.selectedObject.geometry.dispose();
-        if(state.selectedObject.material) {
-            if(Array.isArray(state.selectedObject.material)) {
-                state.selectedObject.material.forEach(m => m.dispose());
-            } else {
-                state.selectedObject.material.dispose();
-                if(state.selectedObject.material.map) state.selectedObject.material.map.dispose();
-            }
-        }
+        const obj = state.selectedObject;
 
-        state.scene.remove(state.selectedObject);
-        state.objectsInScene.splice(state.objectsInScene.indexOf(state.selectedObject),1);
-        state.totalPrice -= state.selectedObject.userData.price||0;
+        // Limpieza de memoria GPU y eliminación de escena
+        disposeHierarchy(obj, true);
+
+        // Actualizar array y precio
+        state.objectsInScene.splice(state.objectsInScene.indexOf(obj), 1);
+        state.totalPrice -= obj.userData.price || 0;
         
-        updateBudget();
+        updateBudget(); // Ahora seguro llamar porque totalPrice se ha actualizado manualmente arriba o via proxy
         deselectObject(); 
         saveHistory(); 
-        showToast("Objeto eliminado y memoria liberada", 'info'); 
+        showToast("Objeto eliminado", 'info'); 
     } 
 }
 

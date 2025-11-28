@@ -1,7 +1,9 @@
-// globals.js
+// --- START OF FILE globals.js ---
+
 import * as THREE from 'three';
 
-export const state = {
+// Estado interno (no exportado directamente para protegerlo con el Proxy)
+const internalState = {
     // Escena y Render
     scene: null,
     renderer: null,
@@ -40,9 +42,9 @@ export const state = {
     totalPrice: 0,
     
     // --- USUARIO Y NUBE ---
-    currentUser: null,       // Objeto Auth de Supabase
-    userProfile: null,       // Datos de perfil (empresa, descuento...)
-    projectToLoad: null,     // ID del proyecto cargado actualmente (si existe)
+    currentUser: null,
+    userProfile: null,
+    projectToLoad: null,
 
     // --- GESTIÓN DE MEMORIA Y ASSETS ---
     pendingModelBase64: null, 
@@ -83,23 +85,23 @@ export const state = {
     loadedLogoImg: null
 };
 
-// Función auxiliar para actualizar presupuesto UI desde cualquier módulo
+// Función de actualización de UI
 export function updateBudget() {
     const el = document.getElementById('budget-box');
     const discountEl = document.getElementById('discount-display');
     
+    // Accedemos directamente a internalState para evitar bucles infinitos con el Proxy
+    let finalPrice = internalState.totalPrice;
+    
     if(el) {
-        let finalPrice = state.totalPrice;
         let discountText = "";
 
-        // Aplicar descuento si el usuario tiene uno asignado en su perfil
-        if (state.userProfile && state.userProfile.discount_rate > 0) {
-            const disc = state.userProfile.discount_rate;
+        if (internalState.userProfile && internalState.userProfile.discount_rate > 0) {
+            const disc = internalState.userProfile.discount_rate;
             const savings = finalPrice * (disc / 100);
             finalPrice = finalPrice - savings;
             discountText = ` (Dto. ${disc}% aplicado)`;
             
-            // Si hay un elemento visual para el descuento, mostrarlo
             if(discountEl) {
                 discountEl.style.display = 'block';
                 discountEl.innerText = `Ahorro: -${savings.toLocaleString('es-ES')} €`;
@@ -109,9 +111,21 @@ export function updateBudget() {
         }
 
         el.innerText = finalPrice.toLocaleString('es-ES') + " €";
-        // Añadimos indicador visual si hay descuento
         if(discountText) {
              el.innerHTML += `<span style="font-size:12px; display:block; color:#f1c40f;">${discountText}</span>`;
         }
     }
 }
+
+// --- PATRÓN PROXY PARA REACTIVIDAD ---
+export const state = new Proxy(internalState, {
+    set(target, property, value) {
+        target[property] = value;
+        
+        // Si cambia el precio total, actualizamos la UI automáticamente
+        if (property === 'totalPrice' || property === 'userProfile') {
+            updateBudget();
+        }
+        return true;
+    }
+});

@@ -1,22 +1,20 @@
-// dxf_exporter.js
+// --- START OF FILE dxf_exporter.js ---
+
 import * as THREE from 'three';
 import { state } from './globals.js';
 import { askUser, showToast, updateLoadingText, wait } from './utils.js';
 
-// --- GENERADOR DE CÓDIGO DXF ---
-
-// Función para formatear pares código/valor
 function p(code, value) {
     return `${code}\r\n${value}\r\n`;
 }
 
-// Cabecera Minimalista R12 (AC1009) - SOLO ENTIDADES LINE y TEXT
+// Header R12 compatible (AC1009)
 function getHeader() {
     let s = "";
     s += p(0, "SECTION");
     s += p(2, "HEADER");
     s += p(9, "$ACADVER");
-    s += p(1, "AC1009"); // R12 (Máxima compatibilidad)
+    s += p(1, "AC1009"); 
     s += p(9, "$INSUNITS");
     s += p(70, 6); // Metros
     s += p(0, "ENDSEC");
@@ -27,9 +25,9 @@ function getHeader() {
     s += p(2, "LAYER");
     s += p(70, 1);
     s += p(0, "LAYER");
-    s += p(2, "0");
+    s += p(2, "SUELOS");
     s += p(70, 0);
-    s += p(62, 7);
+    s += p(62, 3); // Verde
     s += p(6, "CONTINUOUS");
     s += p(0, "ENDTAB");
     s += p(0, "ENDSEC");
@@ -41,8 +39,6 @@ function getHeader() {
 
 const FOOTER = p(0, "ENDSEC") + p(0, "EOF");
 
-// --- ENTIDADES BÁSICAS (SOLO LINE Y TEXT) ---
-
 function drawLine(x1, y1, x2, y2, layer) {
     if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return "";
     return p(0, "LINE") +
@@ -51,16 +47,20 @@ function drawLine(x1, y1, x2, y2, layer) {
            p(11, x2.toFixed(4)) + p(21, y2.toFixed(4)) + p(31, 0.0);  
 }
 
-function drawPolyAsLines(points, layer, closed = true) {
+function drawLWPolyline(points, layer) {
     if (!points || points.length < 2) return "";
+    
     let s = "";
-    for (let i = 0; i < points.length - 1; i++) {
-        s += drawLine(points[i].x, -points[i].z, points[i+1].x, -points[i+1].z, layer);
-    }
-    if (closed && points.length > 2) {
-        const last = points[points.length - 1];
-        const first = points[0];
-        s += drawLine(last.x, -last.z, first.x, -first.z, layer);
+    s += p(0, "LWPOLYLINE");
+    s += p(8, layer);
+    s += p(100, "AcDbEntity");
+    s += p(100, "AcDbPolyline");
+    s += p(90, points.length); // Número de vértices
+    s += p(70, 1); // 1 = Closed
+
+    for (let pt of points) {
+        s += p(10, pt.x.toFixed(4));
+        s += p(20, (-pt.z).toFixed(4)); // Y en DXF es -Z en Three
     }
     return s;
 }
@@ -74,14 +74,37 @@ function drawText(x, y, text, height, layer) {
            p(1, safeText);
 }
 
-// --- PROCESAMIENTO GEOMETRÍA 3D ---
-
 function processModelGeometry(group) {
     let lines = "";
     const thresholdAngle = 20; 
     
+    const instanceMatrix = new THREE.Matrix4();
+    const finalMatrix = new THREE.Matrix4();
+
     group.traverse((child) => {
-        if (child.isMesh && child.geometry) {
+        if (child.isInstancedMesh && child.geometry) {
+            const edges = new THREE.EdgesGeometry(child.geometry, thresholdAngle);
+            const pos = edges.attributes.position;
+            
+            if (pos) {
+                child.updateMatrixWorld(true);
+                for (let k = 0; k < child.count; k++) {
+                    child.getMatrixAt(k, instanceMatrix);
+                    finalMatrix.multiplyMatrices(child.matrixWorld, instanceMatrix);
+
+                    for (let i = 0; i < pos.count; i += 2) {
+                        const v1 = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i));
+                        const v2 = new THREE.Vector3(pos.getX(i+1), pos.getY(i+1), pos.getZ(i+1));
+                        v1.applyMatrix4(finalMatrix);
+                        v2.applyMatrix4(finalMatrix);
+                        const dist = Math.hypot(v1.x - v2.x, v1.z - v2.z);
+                        if (dist > 0.01) lines += drawLine(v1.x, -v1.z, v2.x, -v2.z, "EQUIPAMIENTO");
+                    }
+                }
+            }
+            edges.dispose();
+        }
+        else if (child.isMesh && child.geometry && !child.isInstancedMesh) {
             const edges = new THREE.EdgesGeometry(child.geometry, thresholdAngle);
             const pos = edges.attributes.position;
 
@@ -108,8 +131,6 @@ function processModelGeometry(group) {
     return lines;
 }
 
-// --- FUNCIÓN EXPORTAR ---
-
 export async function exportDXF() {
     if(state.objectsInScene.length === 0) {
         showToast("Escena vacía", "error");
@@ -120,7 +141,7 @@ export async function exportDXF() {
     if(!filename) return;
 
     document.getElementById('loading').style.display = 'block';
-    updateLoadingText("Generando DXF (Modo Seguro)...");
+    updateLoadingText("Generando DXF...");
     await wait(100);
 
     const chunks = [];
@@ -129,8 +150,6 @@ export async function exportDXF() {
     try {
         let counter = 0;
         for (const obj of state.objectsInScene) {
-            
-            // OPTIMIZACIÓN UI: Ceder control al navegador cada 3 objetos
             counter++;
             if (counter % 3 === 0) {
                 updateLoadingText(`Procesando objeto ${counter}/${state.objectsInScene.length}...`);
@@ -139,16 +158,39 @@ export async function exportDXF() {
 
             const d = obj.userData;
             
-            // --- SUELOS ---
+            // SUELOS
             if (d.isFloor) {
-                if (d.points && d.points.length > 0) {
-                    chunks.push(drawPolyAsLines(d.points, "SUELOS", true));
-                } else if (d.dims && d.dims.includes('x')) {
+                let pts = [];
+                
+                // PRIORIDAD 1: Contorno final calculado (Mezcla Curva/Recta)
+                if (d.finalPoints && d.finalPoints.length > 0) {
+                    // Los finalPoints están en coordenadas locales pre-calculadas pero "flat"
+                    // Necesitamos aplicar la transformación del objeto actual (posición, rotación)
+                    pts = d.finalPoints.map(p => {
+                         const v = new THREE.Vector3(p.x, p.y, p.z);
+                         v.applyEuler(obj.rotation);
+                         v.multiply(obj.scale);
+                         v.add(obj.position);
+                         return v;
+                    });
+                }
+                // PRIORIDAD 2: Puntos de control originales (Legacy)
+                else if (d.points && d.points.length > 0) {
+                    pts = d.points.map(p => {
+                        const v = new THREE.Vector3(p.x, p.y, p.z);
+                        v.applyEuler(obj.rotation);
+                        v.multiply(obj.scale);
+                        v.add(obj.position);
+                        return v;
+                    });
+                } 
+                // PRIORIDAD 3: Rectángulos simples
+                else if (d.dims && d.dims.includes('x')) {
                     const parts = d.dims.split('x');
                     const w = parseFloat(parts[0]) * obj.scale.x;
                     const h = parseFloat(parts[1]) * obj.scale.y;
                     const hw = w/2; const hh = h/2;
-                    const pts = [
+                    pts = [
                         new THREE.Vector3(-hw, 0, -hh),
                         new THREE.Vector3(hw, 0, -hh),
                         new THREE.Vector3(hw, 0, hh),
@@ -160,24 +202,16 @@ export async function exportDXF() {
                         p.applyAxisAngle(new THREE.Vector3(0,1,0), rot);
                         p.add(center);
                     });
-                    chunks.push(drawPolyAsLines(pts, "SUELOS", true));
+                }
+                
+                if (pts.length > 0) {
+                    chunks.push(drawLWPolyline(pts, "SUELOS"));
                 }
             } 
-            // --- MODELOS 3D ---
+            // VALLAS Y MODELOS
             else {
                 const geomLines = processModelGeometry(obj);
-                if (geomLines.length > 0) {
-                    chunks.push(geomLines);
-                } else {
-                    const s = 1;
-                    const pts = [
-                        new THREE.Vector3(obj.position.x-s, 0, obj.position.z-s),
-                        new THREE.Vector3(obj.position.x+s, 0, obj.position.z-s),
-                        new THREE.Vector3(obj.position.x+s, 0, obj.position.z+s),
-                        new THREE.Vector3(obj.position.x-s, 0, obj.position.z+s)
-                    ];
-                    chunks.push(drawPolyAsLines(pts, "EQUIPAMIENTO", true));
-                }
+                if (geomLines.length > 0) chunks.push(geomLines);
                 chunks.push(drawText(obj.position.x, -obj.position.z, d.ref || "Juego", 0.4, "TEXTOS"));
             }
         }
@@ -200,3 +234,4 @@ export async function exportDXF() {
         document.getElementById('loading').style.display = 'none';
     }
 }
+// --- END OF FILE dxf_exporter.js ---

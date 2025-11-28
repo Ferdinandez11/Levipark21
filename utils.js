@@ -1,7 +1,73 @@
+// --- START OF FILE utils.js ---
+
 import * as THREE from 'three';
-import { state } from './globals.js'; // Necesario para acceder a state.safetyZonesList y state.showSafetyZones
+import { state } from './globals.js'; 
 
 export function wait(ms) { return new Promise(r=>setTimeout(r,ms)); }
+
+// --- NUEVO: Wrapper asíncrono para GLTFLoader ---
+export function loadGLTFPromise(url) {
+    return new Promise((resolve, reject) => {
+        if (!state.loader) reject("Loader no inicializado");
+        state.loader.load(
+            url,
+            (gltf) => resolve(gltf),
+            undefined, 
+            (error) => reject(error)
+        );
+    });
+}
+
+// --- NUEVO: Gestión de Memoria (Limpieza profunda) ---
+export function disposeHierarchy(node, removeFromScene = true) {
+    if (!node) return;
+    
+    node.traverse((child) => {
+        if (child.geometry) {
+            child.geometry.dispose();
+        }
+        if (child.material) {
+            if (Array.isArray(child.material)) {
+                child.material.forEach(m => {
+                    if (m.map) m.map.dispose();
+                    if (m.lightMap) m.lightMap.dispose();
+                    if (m.bumpMap) m.bumpMap.dispose();
+                    if (m.normalMap) m.normalMap.dispose();
+                    if (m.specularMap) m.specularMap.dispose();
+                    if (m.envMap) m.envMap.dispose();
+                    if (m.alphaMap) m.alphaMap.dispose();
+                    if (m.aoMap) m.aoMap.dispose();
+                    if (m.displacementMap) m.displacementMap.dispose();
+                    if (m.emissiveMap) m.emissiveMap.dispose();
+                    if (m.gradientMap) m.gradientMap.dispose();
+                    if (m.metalnessMap) m.metalnessMap.dispose();
+                    if (m.roughnessMap) m.roughnessMap.dispose();
+                    m.dispose();
+                });
+            } else {
+                const m = child.material;
+                if (m.map) m.map.dispose();
+                if (m.lightMap) m.lightMap.dispose();
+                if (m.bumpMap) m.bumpMap.dispose();
+                if (m.normalMap) m.normalMap.dispose();
+                if (m.specularMap) m.specularMap.dispose();
+                if (m.envMap) m.envMap.dispose();
+                if (m.alphaMap) m.alphaMap.dispose();
+                if (m.aoMap) m.aoMap.dispose();
+                if (m.displacementMap) m.displacementMap.dispose();
+                if (m.emissiveMap) m.emissiveMap.dispose();
+                if (m.gradientMap) m.gradientMap.dispose();
+                if (m.metalnessMap) m.metalnessMap.dispose();
+                if (m.roughnessMap) m.roughnessMap.dispose();
+                m.dispose();
+            }
+        }
+    });
+
+    if (removeFromScene && node.parent) {
+        node.parent.remove(node);
+    }
+}
 
 export function showToast(msg, type = 'info') {
     const container = document.getElementById('toast-container');
@@ -81,7 +147,6 @@ export function toggleDisplay(id) {
     if(e) e.style.display=e.style.display==='none'?'block':'none'; 
 }
 
-// Logo Helpers
 export function preloadLogo(url, state) { 
     const i=new Image();
     i.crossOrigin="Anonymous";
@@ -101,7 +166,6 @@ function createLogoUrl() {
     x.fillText("Levipark21",0,40);return c.toDataURL('image/png'); 
 }
 
-// --- LOGICA DE ZONAS DE SEGURIDAD (MOVIDA DESDE MAIN.JS) ---
 export function processSafetyZones(model) {
     model.traverse(node => {
         if (node.isMesh) {

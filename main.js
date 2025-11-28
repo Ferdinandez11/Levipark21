@@ -1,5 +1,5 @@
-// main.js
-// ... (imports anteriores se mantienen igual, solo añadimos initSupabase) ...
+// --- START OF FILE main.js ---
+
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -10,45 +10,38 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js'; 
 
-import { toggleFenceMode, addFencePoint, updateFencePreview, finishFence } from './fence.js';
-
-// NUEVO: Importamos funciones del backend
-import { initSupabase, loginUser, registerUser, logoutUser, saveProjectToCloud, loadUserProjects } from './backend.js';
-
-// Módulos
-import { state, updateBudget } from './globals.js';
-import { LOGO_URL, FLOOR_COLORS } from './config.js';
-import { showToast, askUser, toggleDisplay, preloadLogo, updateLoadingText, processSafetyZones } from './utils.js';
-import { loadSheetData, filterCatalog, prepareToPlace, initCatalogUI } from './catalog.js';
+import { initSupabase } from './backend.js';
+import { state } from './globals.js'; 
+import { LOGO_URL } from './config.js';
+import { showToast, preloadLogo, processSafetyZones, loadGLTFPromise } from './utils.js';
+import { loadSheetData } from './catalog.js';
 import { 
-    toggleMeasureMode, toggleFloorMode, updateMeasureLine, clearMeasurements, updateFloorDraft, 
-    addPointFromInput, finishFloor, updateFloorFromInput, applyTextureToSelectedFloor,
-    prepareCustomFloor, setFloorColor, updateTextureMapping, addFloorPoint, updateFloorInfoLabel, createMeasureMarker
+    updateMeasureLine, clearMeasurements, updateFloorDraft, 
+    addFloorPoint, updateFloorInfoLabel, createMeasureMarker, toggleFloorMode
 } from './floor.js';
 import { 
-    selectObject, deselectObject, deleteSelected, cloneSelected, checkCollisions, 
-    snapToFloor, toggleLock, toggleObjectCollision, setGizmoMode 
+    selectObject, deselectObject, checkCollisions, 
+    snapToFloor, setGizmoMode 
 } from './interaction.js';
 import { 
-    undo, redo, saveHistory, saveToLocalStorage, loadProjectData, saveProject, resetScene 
+    saveHistory, saveToLocalStorage, loadProjectData 
 } from './history.js';
-import { generateDossier, exportToMobile } from './exporters.js';
-import { exportDXF } from './dxf_exporter.js';
+import { addFencePoint, updateFencePreview, toggleFenceMode } from './fence.js';
+
+// NUEVO: Importamos el gestor de UI
+import { initDOMEvents } from './ui_manager.js';
 
 let dragStartData = { pos: new THREE.Vector3(), rot: new THREE.Euler(), scale: new THREE.Vector3() };
 let reticle;
 
-// --- INICIO ---
 init();
 
 async function init() {
-    // 1. INICIALIZAR BACKEND (SUPABASE)
     initSupabase();
 
     state.loadingManager = new THREE.LoadingManager();
-    state.loadingManager.onStart = (url) => { document.getElementById('loading').style.display='block'; document.getElementById('loading-text').innerText='Iniciando carga...'; };
+    state.loadingManager.onStart = () => { document.getElementById('loading').style.display='block'; document.getElementById('loading-text').innerText='Iniciando carga...'; };
     state.loadingManager.onProgress = (url, loaded, total) => { document.getElementById('loading-text').innerText=`Cargando... ${Math.round((loaded/total)*100)}%`; };
     state.loadingManager.onLoad = () => { document.getElementById('loading').style.display='none'; };
     
@@ -138,6 +131,10 @@ async function init() {
     initSky();
     window.addEventListener('resize', onWindowResize);
 
+    // Escuchar eventos personalizados de UI Manager
+    window.addEventListener('env-changed', updateSunPosition);
+    window.addEventListener('snap-changed', updateSnapSettings);
+
     const urlParams = new URLSearchParams(window.location.search);
     const compressedData = urlParams.get('data');
     if (compressedData) {
@@ -152,18 +149,60 @@ async function init() {
         const s = localStorage.getItem('levipark_autosave'); if(s) { try { loadProjectData(JSON.parse(s)); } catch(e){} }
     }
 
-    setupEventListeners();
-    setupAuthListeners(); // <--- NUEVOS LISTENERS DE LOGIN
+    // --- INICIALIZACIÓN DE EVENTOS DEL DOM SEPARADA ---
+    initDOMEvents();
 
-    document.getElementById('btn-fence').addEventListener('click', toggleFenceMode);    
-    setupUploadSystem();
+    setupEventListeners(); // Mantiene listeners de pointer/keyboard (lógica de escena)
+    
     preloadLogo(LOGO_URL, state);
     
     setInterval(saveToLocalStorage, 30000);
     state.renderer.setAnimationLoop(render);
 }
 
-// ... (RESTO DE FUNCIONES DE SETUP IGUAL QUE ANTES) ...
+// placeObject se mantiene aquí porque es lógica de escena pura invocada por raycaster
+async function placeObject(p) { 
+    document.getElementById('loading').style.display='block'; 
+    const u=state.productToPlace; 
+    const b64=state.pendingModelBase64; 
+    const assetId = state.pendingAssetId; 
+
+    try {
+        const gltf = await loadGLTFPromise(u);
+        const m = gltf.scene; 
+        m.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;}}); 
+        processSafetyZones(m); 
+        m.position.set(p.x,0,p.z); 
+        m.userData=JSON.parse(JSON.stringify(window.currentProductData)); 
+        m.userData.modelFile=u; 
+        
+        if(assetId) {
+            m.userData.assetId = assetId;
+            m.userData.modelBase64 = null; 
+        } else {
+            m.userData.modelBase64 = b64; 
+        }
+
+        m.userData.locked=false; m.userData.collides=true; 
+        state.scene.add(m); state.objectsInScene.push(m); 
+        state.totalPrice += m.userData.price; 
+        
+        selectObject(m); snapToFloor(m); saveHistory(); 
+        
+        state.productToPlace=null; 
+        state.pendingModelBase64=null; 
+        state.pendingAssetId=null;
+        
+        document.querySelectorAll('.btn-product').forEach(btn=>btn.classList.remove('active')); 
+        showToast("Objeto colocado", 'success'); 
+    } catch(err) {
+        console.error(err);
+        showToast("Error al colocar objeto", 'error');
+    } finally {
+        document.getElementById('loading').style.display='none'; 
+    }
+}
+
 function setupPostProcessing() {
     state.composer = new EffectComposer(state.renderer);
     state.composer.addPass(new RenderPass(state.scene, state.activeCamera));
@@ -200,329 +239,12 @@ function updateSnapSettings() {
     }
 }
 
-function setupUploadSystem() {
-    document.getElementById('btn-upload-trigger').addEventListener('click', () => document.getElementById('file-upload').click());
-    document.getElementById('file-upload').addEventListener('change', (e) => {
-        const file = e.target.files[0]; if (!file) return;
-        const name = file.name.toLowerCase();
-        if (name.endsWith('.glb') || name.endsWith('.gltf')) {
-            const reader = new FileReader(); reader.readAsDataURL(file);
-            reader.onload = function(evt) { 
-                prepareImportedModel(URL.createObjectURL(file), file.name, evt.target.result); 
-            };
-        } else if (name.endsWith('.jpg') || name.endsWith('.png') || name.endsWith('.jpeg')) {
-            const url = URL.createObjectURL(file);
-            if (state.selectedObject && state.selectedObject.userData.isFloor) applyTextureToSelectedFloor(url, file.name);
-            else prepareCustomFloor(url, file.name);
-        }
-        e.target.value = "";
-    });
-}
-
-async function prepareImportedModel(url, filename, base64Data) {
-    if (state.isMeasuring) toggleMeasureMode(); if (state.isDrawingFloor) toggleFloorMode(); deselectObject();
-    
-    // Generar ID único para este asset
-    const assetId = "import_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
-    state.assetCache[assetId] = base64Data;
-    
-    const userRef = await askUser("Referencia del modelo:", "CUSTOM") || "CUSTOM";
-    const priceStr = await askUser("Precio unitario (€):", "0");
-    const userPrice = parseFloat(priceStr) || 0;
-
-    window.currentProductData = { 
-        name: filename, 
-        price: userPrice, 
-        ref: userRef, 
-        desc: "Importado", 
-        dims: "Custom",
-        assetId: assetId 
-    };
-    
-    state.productToPlace = url; 
-    state.productPrice = userPrice; 
-    state.pendingModelBase64 = base64Data; 
-    state.pendingAssetId = assetId;
-
-    showToast("Haz click en el suelo para colocar.", 'success');
-}
-
-function placeObject(p) { 
-    document.getElementById('loading').style.display='block'; 
-    const u=state.productToPlace; 
-    const b64=state.pendingModelBase64; 
-    const assetId = state.pendingAssetId; 
-
-    state.loader.load(u, (g)=>{ 
-        const m=g.scene; m.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;}}); 
-        processSafetyZones(m); 
-        m.position.set(p.x,0,p.z); 
-        m.userData=JSON.parse(JSON.stringify(window.currentProductData)); 
-        m.userData.modelFile=u; 
-        if(assetId) {
-            m.userData.assetId = assetId;
-            m.userData.modelBase64 = null; 
-        } else {
-            m.userData.modelBase64 = b64; 
-        }
-
-        m.userData.locked=false; m.userData.collides=true; 
-        state.scene.add(m); state.objectsInScene.push(m); state.totalPrice+=m.userData.price; updateBudget(); 
-        selectObject(m); snapToFloor(m); saveHistory(); 
-        document.getElementById('loading').style.display='none'; 
-        
-        state.productToPlace=null; 
-        state.pendingModelBase64=null; 
-        state.pendingAssetId=null;
-        
-        document.querySelectorAll('.btn-product').forEach(btn=>btn.classList.remove('active')); 
-        showToast("Objeto colocado", 'success'); 
-    }); 
-}
-
-// --- NUEVA FUNCIÓN: Exportar GLB ---
-async function exportGLB() {
-    if (state.objectsInScene.length === 0) {
-        showToast("Escena vacía", "error");
-        return;
-    }
-
-    const name = await askUser("Nombre del archivo .glb:", "diseño_3d");
-    if(!name) return;
-
-    document.getElementById('loading').style.display = 'block';
-    updateLoadingText("Generando GLB 3D...");
-
-    // Limpiamos la escena de helpers antes de exportar
-    const prevVisibleGrid = state.gridHelper.visible;
-    state.gridHelper.visible = false;
-    state.transformControl.detach();
-    if(state.measureLine) state.measureLine.visible = false;
-    state.measureMarkers.forEach(m => m.visible = false);
-    state.shadowPlane.visible = false;
-
-    // Crear un grupo temporal con los objetos a exportar
-    const exportGroup = new THREE.Group();
-    state.objectsInScene.forEach(obj => {
-        const clone = obj.clone();
-        exportGroup.add(clone);
-    });
-
-    const exporter = new GLTFExporter();
-    exporter.parse(
-        exportGroup,
-        function (gltf) {
-            const blob = new Blob([gltf], { type: 'application/octet-stream' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = name.endsWith('.glb') ? name : name + '.glb';
-            a.click();
-            
-            // Restaurar estado
-            state.gridHelper.visible = prevVisibleGrid;
-            state.shadowPlane.visible = true;
-            if(state.measureLine) state.measureLine.visible = true;
-            state.measureMarkers.forEach(m => m.visible = true);
-            if(state.selectedObject) state.transformControl.attach(state.selectedObject);
-            
-            document.getElementById('loading').style.display = 'none';
-            showToast("Exportación GLB completa", "success");
-        },
-        function (error) {
-            console.error(error);
-            showToast("Error al exportar GLB", "error");
-            document.getElementById('loading').style.display = 'none';
-        },
-        { binary: true } // Exportar como .glb binario
-    );
-}
-
-// --- LISTENERS UI (Eventos) ---
-
-function setupAuthListeners() {
-    // Botón abrir modal login
-    document.getElementById('btn-auth-trigger').addEventListener('click', () => {
-        if(state.currentUser) {
-            // Si ya está logueado, al hacer click cierra sesión (o abre perfil, aquí simplificado a cerrar)
-            if(confirm("¿Cerrar sesión?")) logoutUser();
-        } else {
-            document.getElementById('auth-panel').style.display = 'flex';
-        }
-    });
-
-    // Toggle Registro/Login
-    document.getElementById('toggle-auth-mode').addEventListener('click', () => {
-        const regBtn = document.getElementById('btn-register-submit');
-        const logBtn = document.getElementById('btn-login-submit');
-        const fields = document.getElementById('register-fields');
-        const toggle = document.getElementById('toggle-auth-mode');
-        
-        if (regBtn.style.display === 'none') {
-            // Cambiar a Modo Registro
-            regBtn.style.display = 'block';
-            logBtn.style.display = 'none';
-            fields.style.display = 'block';
-            toggle.innerHTML = '¿Ya tienes cuenta? <span style="color:#4a90e2; text-decoration:underline;">Inicia sesión</span>';
-        } else {
-            // Cambiar a Modo Login
-            regBtn.style.display = 'none';
-            logBtn.style.display = 'block';
-            fields.style.display = 'none';
-            toggle.innerHTML = '¿No tienes cuenta? <span style="color:#4a90e2; text-decoration:underline;">Regístrate aquí</span>';
-        }
-    });
-
-    // Submit Login
-    document.getElementById('btn-login-submit').addEventListener('click', async () => {
-        const e = document.getElementById('auth-email').value;
-        const p = document.getElementById('auth-pass').value;
-        if(e && p) await loginUser(e, p);
-    });
-
-    // Submit Registro
-    document.getElementById('btn-register-submit').addEventListener('click', async () => {
-        const e = document.getElementById('auth-email').value;
-        const p = document.getElementById('auth-pass').value;
-        const c = document.getElementById('auth-company').value;
-        if(e && p) await registerUser(e, p, c);
-    });
-
-    // Botones Nube
-    document.getElementById('btn-save-cloud').addEventListener('click', saveProjectToCloud);
-    document.getElementById('btn-load-cloud').addEventListener('click', loadUserProjects);
-}
-
-
+// Listener de input y eventos de ventana (Lógica Core)
 function setupEventListeners() {
     window.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('keydown', onKeyDown);
-
-    // UI Toggles
-    document.getElementById('btn-toggle-menu').addEventListener('click', () => toggleDisplay('ui-panel'));
-    document.getElementById('btn-close-menu').addEventListener('click', () => document.getElementById('ui-panel').style.display = 'none');
-    document.getElementById('btn-toggle-env').addEventListener('click', () => toggleDisplay('env-panel'));
-    document.getElementById('btn-min-edit').addEventListener('click', () => toggleDisplay('edit-content'));
-
-    // Herramientas
-    document.getElementById('btn-snap').addEventListener('click', () => { 
-        state.isSnapping = !state.isSnapping; 
-        const btn = document.getElementById('btn-snap');
-        if(state.isSnapping) { btn.classList.add('active-snap'); showToast('Snapping Activado', 'info'); } 
-        else { btn.classList.remove('active-snap'); showToast('Snapping Desactivado', 'info'); }
-        updateSnapSettings();
-    });
-    
-    document.getElementById('btn-toggle-safety').addEventListener('click', () => {
-        state.showSafetyZones = !state.showSafetyZones;
-        const btn = document.getElementById('btn-toggle-safety');
-        if(state.showSafetyZones) { btn.classList.remove('active-safety'); showToast('Zonas de seguridad visibles', 'info'); }
-        else { btn.classList.add('active-safety'); showToast('Zonas de seguridad ocultas', 'info'); }
-        state.safetyZonesList.forEach(obj => { obj.visible = state.showSafetyZones; });
-    });
-
-    document.getElementById('btn-toggle-grid').addEventListener('click', () => {
-        if(!state.gridHelper) return;
-        state.gridHelper.visible = !state.gridHelper.visible;
-        const btn = document.getElementById('btn-toggle-grid');
-        if(state.gridHelper.visible) { btn.classList.add('active-grid'); showToast('Cuadrícula visible (1x1m)', 'info'); } 
-        else { btn.classList.remove('active-grid'); }
-    });
-
-    // Floor
-    document.getElementById('mode-poly').addEventListener('click', () => setFloorMode('poly'));
-    document.getElementById('mode-rect').addEventListener('click', () => setFloorMode('rect'));
-    document.getElementById('btn-floor').addEventListener('click', toggleFloorMode);
-    document.getElementById('btn-add-point').addEventListener('click', addPointFromInput); 
-    document.getElementById('btn-close-floor').addEventListener('click', () => {
-    if (state.isDrawingFence) {
-        finishFence();
-        } else {
-        import('./floor.js').then(m => { m.finishFloor(); m.toggleFloorMode(); });
-        }
-    });
-    
-    // Inputs Focus
-    document.querySelectorAll('.input-box').forEach(i => { i.addEventListener('focus', ()=>state.isInputFocused=true); i.addEventListener('blur', ()=>state.isInputFocused=false); i.addEventListener('input', updateFloorFromInput); });
-
-    // Environment
-    document.getElementById('env-white').addEventListener('click', () => { state.sky.visible=false; updateSunPosition(); });
-    document.getElementById('env-morning').addEventListener('click', () => { state.sky.visible=true; state.sunElevation=15; state.sunAzimuth=90; updateSunPosition(); document.getElementById('sun-azimuth').value=90; document.getElementById('sun-elevation').value=15; });
-    document.getElementById('env-noon').addEventListener('click', () => { state.sky.visible=true; state.sunElevation=80; state.sunAzimuth=180; updateSunPosition(); document.getElementById('sun-azimuth').value=180; document.getElementById('sun-elevation').value=80; });
-    document.getElementById('env-evening').addEventListener('click', () => { state.sky.visible=true; state.sunElevation=5; state.sunAzimuth=270; updateSunPosition(); document.getElementById('sun-azimuth').value=270; document.getElementById('sun-elevation').value=5; });
-    
-    document.getElementById('sun-azimuth').addEventListener('input', (e) => { state.sunAzimuth=e.target.value; updateSunPosition(); });
-    document.getElementById('sun-elevation').addEventListener('input', (e) => { state.sunElevation=e.target.value; updateSunPosition(); });
-    document.getElementById('light-intensity').addEventListener('input', (e) => { state.dirLight.intensity=e.target.value; });
-
-    // Texture
-    document.getElementById('tex-scale').addEventListener('input', updateTextureMapping);
-    document.getElementById('tex-rotate').addEventListener('input', updateTextureMapping);
-    document.getElementById('tex-off-x').addEventListener('input', updateTextureMapping);
-    document.getElementById('tex-off-y').addEventListener('input', updateTextureMapping);
-    document.getElementById('btn-floor-upload-tex').addEventListener('click', () => { document.getElementById('file-upload').click(); });
-
-    // Colors
-    document.getElementById('fc-garnet').addEventListener('click', () => setFloorColor(FLOOR_COLORS.garnet));
-    document.getElementById('fc-blue').addEventListener('click', () => setFloorColor(FLOOR_COLORS.blue));
-    document.getElementById('fc-green').addEventListener('click', () => setFloorColor(FLOOR_COLORS.green));
-    document.getElementById('fc-black').addEventListener('click', () => setFloorColor(FLOOR_COLORS.black));
-
-    // Actions
-    document.getElementById('btn-screenshot').addEventListener('click', takeScreenshot);
-    document.getElementById('btn-export-pdf').addEventListener('click', generateDossier);
-    document.getElementById('btn-export-dxf').addEventListener('click', exportDXF);
-    document.getElementById('btn-export-glb').addEventListener('click', exportGLB); 
-    document.getElementById('btn-projection').addEventListener('click', toggleProjection);
-    document.getElementById('btn-save-project').addEventListener('click', saveProject);
-    document.getElementById('btn-load-project').addEventListener('click', () => document.getElementById('project-upload').click());
-    document.getElementById('project-upload').addEventListener('change', (e) => { const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=(ev)=>{try{loadProjectData(JSON.parse(ev.target.result)); showToast("Proyecto cargado.", 'success');}catch(x){ showToast("Error al leer archivo.", 'error'); }}; r.readAsText(f); e.target.value=''; });
-    document.getElementById('btn-mobile-ar').addEventListener('click', exportToMobile);
-
-    // Vistas
-    document.getElementById('view-iso').addEventListener('click', ()=>setView('iso')); 
-    document.getElementById('view-top').addEventListener('click', ()=>setView('top'));
-    document.getElementById('view-front').addEventListener('click', ()=>setView('front'));
-    document.getElementById('view-side').addEventListener('click', ()=>setView('side'));
-
-    // Edit
-    document.getElementById('btn-measure').addEventListener('click', toggleMeasureMode);
-    document.getElementById('clear-measures').addEventListener('click', clearMeasurements);
-    document.getElementById('btn-reset').addEventListener('click', resetScene); 
-    document.getElementById('btn-lock').addEventListener('click', toggleLock);
-    document.getElementById('btn-collision').addEventListener('click', toggleObjectCollision); 
-    document.getElementById('btn-delete').addEventListener('click', deleteSelected);
-    document.getElementById('btn-clone').addEventListener('click', cloneSelected);
-    document.getElementById('btn-undo').addEventListener('click', undo); 
-    document.getElementById('btn-redo').addEventListener('click', redo);
-
-    document.getElementById('mode-translate').addEventListener('click', ()=>setGizmoMode('translate')); 
-    document.getElementById('mode-rotate').addEventListener('click', ()=>setGizmoMode('rotate'));
-    document.getElementById('mode-scale').addEventListener('click', ()=>setGizmoMode('scale'));
-
-    document.getElementById('catalog-search').addEventListener('input', (e) => filterCatalog(e.target.value));
-    document.getElementById('btn-show-list').addEventListener('click', updateAndShowList);
-
-    const fenceSelect = document.getElementById('fence-model-select');
-    if(fenceSelect) {
-        fenceSelect.addEventListener('change', (e) => {
-            import('./fence.js').then(m => {
-                m.setFenceConfig(e.target.value);
-            });
-        });
-    }
-    
-    ['fence-col-post', 'fence-col-a', 'fence-col-b', 'fence-col-c'].forEach(id => {
-        const el = document.getElementById(id);
-        if(el) {
-            el.addEventListener('input', (e) => {
-                const key = id.replace('fence-col-', '').replace('post', 'post').replace('a', 'slatA').replace('b', 'slatB').replace('c', 'slatC');
-                import('./fence.js').then(m => m.setFenceConfig(null, key, e.target.value));
-            });
-        }
-    });
 }
 
 
@@ -538,7 +260,8 @@ function onPointerDown(event) {
     if (state.isDrawingFloor) { 
         const i = state.raycaster.intersectObject(state.shadowPlane); 
         if (i.length>0) {
-            if (state.floorMode === 'poly') {
+            // Aceptamos Poly o Curve como puntos
+            if (state.floorMode === 'poly' || state.floorMode === 'curve') {
                 addFloorPoint(i[0].point); 
             } else if (state.floorMode === 'rect') {
                 state.rectStartPoint = i[0].point; 
@@ -579,7 +302,7 @@ function onPointerMove(event) {
     if (state.isInputFocused) return;
     state.pointer.x = (event.clientX / window.innerWidth) * 2 - 1; state.pointer.y = - (event.clientY / window.innerHeight) * 2 + 1; state.raycaster.setFromCamera(state.pointer, state.activeCamera);
     
-    if (state.isDrawingFloor && state.floorMode === 'poly' && state.floorPoints.length>0) { 
+    if (state.isDrawingFloor && (state.floorMode === 'poly' || state.floorMode === 'curve') && state.floorPoints.length>0) { 
         const i = state.raycaster.intersectObject(state.shadowPlane); 
         if(i.length>0) updateFloorDraft(i[0].point); 
     }
@@ -608,74 +331,34 @@ function onPointerUp(event) {
         const width = state.rectPreviewMesh.scale.x; const depth = state.rectPreviewMesh.scale.y; const pos = state.rectPreviewMesh.position.clone();
         state.scene.remove(state.rectPreviewMesh); state.scene.remove(state.floorLabel); state.rectStartPoint = null; state.rectPreviewMesh = null;
         if (width < 0.2 || depth < 0.2) return; 
-        const area = width * depth; const pr = Math.round(area * 40); // 40 hardcoded or imported from config
-        const mat = new THREE.MeshStandardMaterial({ color: FLOOR_COLORS.garnet, roughness:0.5 });
-        const m = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), mat);
-        m.rotation.x = -Math.PI/2; m.position.set(pos.x, 0.01, pos.z); m.receiveShadow = true; m.castShadow = true;
-        m.userData = { price: pr, locked:false, collides:true, isFloor:true, area: area.toFixed(2), name: "Suelo Rectangular", ref: "S-Rect", dims: `${width.toFixed(2)}x${depth.toFixed(2)}` };
-        state.scene.add(m); state.objectsInScene.push(m); state.totalPrice += pr; updateBudget(); selectObject(m); saveHistory(); toggleFloorMode();
+        
+        // Importación dinámica de tema para no romper encapsulamiento, aunque es un color suelto.
+        import('./config.js').then(config => {
+             const area = width * depth; const pr = Math.round(area * 40); 
+             const mat = new THREE.MeshStandardMaterial({ color: config.FLOOR_COLORS.garnet, roughness:0.5 });
+             const m = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), mat);
+             m.rotation.x = -Math.PI/2; m.position.set(pos.x, 0.01, pos.z); m.receiveShadow = true; m.castShadow = true;
+             m.userData = { price: pr, locked:false, collides:true, isFloor:true, area: area.toFixed(2), name: "Suelo Rectangular", ref: "S-Rect", dims: `${width.toFixed(2)}x${depth.toFixed(2)}` };
+             state.scene.add(m); state.objectsInScene.push(m); 
+             state.totalPrice += pr; 
+             selectObject(m); saveHistory(); toggleFloorMode();
+        });
     }
 }
 
 function onKeyDown(e) { 
     if(state.isInputFocused) return;
-    if(e.key==='Delete') deleteSelected(); 
+    // Utilizamos imports dinámicos o funciones exportadas para acciones que no están en main
+    if(e.key==='Delete') import('./interaction.js').then(m=>m.deleteSelected()); 
     if(e.key==='t') setGizmoMode('translate'); 
     if(e.key==='r') setGizmoMode('rotate');
     if(e.key==='e') setGizmoMode('scale');
-    if(e.key==='c' || e.key==='C') cloneSelected();
+    if(e.key==='c' || e.key==='C') import('./interaction.js').then(m=>m.cloneSelected());
     if(e.key==='s' || e.key==='S') document.getElementById('btn-snap').click();
-    if(e.ctrlKey && e.key==='z') undo(); 
-    if(e.ctrlKey && e.key==='y') redo();
+    if(e.ctrlKey && e.key==='z') import('./history.js').then(m=>m.undo()); 
+    if(e.ctrlKey && e.key==='y') import('./history.js').then(m=>m.redo());
 }
 
-function toggleProjection() { 
-    const p=state.activeCamera.position.clone(), t=state.controls.target.clone(); 
-    state.activeCamera = (state.activeCamera===state.perspectiveCamera)?state.orthoCamera:state.perspectiveCamera; 
-    state.activeCamera.position.copy(p); state.activeCamera.lookAt(t); 
-    state.controls.object=state.activeCamera; state.transformControl.camera=state.activeCamera; 
-    if (state.activeCamera === state.orthoCamera) { const aspect = window.innerWidth / window.innerHeight; state.orthoCamera.left = -20 * aspect; state.orthoCamera.right = 20 * aspect; state.orthoCamera.top = 20; state.orthoCamera.bottom = -20; state.orthoCamera.updateProjectionMatrix(); } 
-    state.composer.passes.forEach(pass => { if(pass.camera) pass.camera = state.activeCamera; }); 
-    document.getElementById('btn-projection').innerText = (state.activeCamera===state.perspectiveCamera)?"👁️ Perspectiva":"📐 Ortográfica"; 
-}
-
-function setView(v) { 
-    state.controls.target.set(0,0,0); const d=20; 
-    if(v==='iso') state.activeCamera.position.set(d,d,d); 
-    if(v==='top') state.activeCamera.position.set(0,d,0); 
-    if(v==='front') state.activeCamera.position.set(0,0,d); 
-    if(v==='side') state.activeCamera.position.set(d,0,0); 
-    state.activeCamera.lookAt(0,0,0); state.controls.update(); 
-}
-
-function takeScreenshot() { 
-    state.transformControl.detach(); state.outlinePass.selectedObjects=[]; state.composer.render(); 
-    const d=state.renderer.domElement.toDataURL('image/jpeg',0.9); 
-    const a=document.createElement('a'); a.download='diseño.jpg'; a.href=d; a.click(); 
-    if(state.selectedObject) selectObject(state.selectedObject); 
-    showToast("Captura guardada", 'success'); 
-}
-
-function updateAndShowList() {
-    const container = document.getElementById('list-content'); container.innerHTML = "";
-    if (state.objectsInScene.length === 0) {
-        container.innerHTML = "<p style='color:#aaa; text-align:center;'>El proyecto está vacío.</p>";
-    } else {
-        state.objectsInScene.forEach((obj, index) => {
-            const row = document.createElement('div'); row.className = 'list-item-row';
-            const nameDiv = document.createElement('div'); nameDiv.className = 'list-item-name';
-            const icon = obj.userData.isFloor ? '⬛' : '🌳';
-            nameDiv.innerText = `${icon} ${obj.userData.name} (${obj.userData.ref})`;
-            const priceDiv = document.createElement('div'); priceDiv.className = 'list-item-price';
-            priceDiv.innerText = (obj.userData.price || 0) + "€";
-            const delBtn = document.createElement('button'); delBtn.className = 'btn-delete-item'; delBtn.innerText = '🗑️';
-            delBtn.onclick = () => { if(!obj.userData.locked) { selectObject(obj); deleteSelected(); updateAndShowList(); } else { showToast("Elemento bloqueado.", 'error'); } };
-            row.appendChild(nameDiv); row.appendChild(priceDiv); row.appendChild(delBtn); container.appendChild(row);
-        });
-    }
-    document.getElementById('list-total-price').innerText = state.totalPrice.toLocaleString('es-ES') + " €";
-    document.getElementById('list-modal').style.display = 'flex';
-}
 
 function onWindowResize() { 
     const w=window.innerWidth, h=window.innerHeight; 

@@ -1,8 +1,9 @@
-// floor.js
+// --- START OF FILE floor.js ---
+
 import * as THREE from 'three';
 import { state, updateBudget } from './globals.js';
 import { PRICE_PER_M2, FLOOR_COLORS } from './config.js';
-import { showToast, askUser } from './utils.js'; // <--- AÑADIDO askUser
+import { showToast, askUser } from './utils.js';
 import { saveHistory } from './history.js';
 import { selectObject, deselectObject } from './interaction.js';
 
@@ -70,23 +71,59 @@ export function createMeasureLabel(t,p) {
 // --- SUELOS ---
 export function setFloorMode(m) {
     state.floorMode = m;
-    document.getElementById('mode-poly').style.background = m==='poly' ? '#4a90e2' : '#444';
-    document.getElementById('mode-rect').style.background = m==='rect' ? '#4a90e2' : '#444';
-    document.getElementById('poly-inputs').style.display = m==='poly' ? 'block' : 'none';
+    
+    // --- CORRECCIÓN UI: Restaurar visibilidad y textos ---
+    // La herramienta de valla oculta estos botones, así que los forzamos a mostrarse
+    const btnPoly = document.getElementById('mode-poly');
+    const btnRect = document.getElementById('mode-rect');
+    const btnCurve = document.getElementById('mode-curve');
+    const title = document.querySelector('#floor-input-panel h1');
+    const fenceOpts = document.getElementById('fence-options-panel');
+
+    // Restaurar título del panel
+    if(title) title.innerText = "✏️ Dibujando Suelo";
+    
+    // Ocultar opciones de valla si se quedaron abiertas
+    if(fenceOpts) fenceOpts.style.display = 'none';
+
+    // Mostrar botones de modo y asignar color activo
+    if(btnPoly) {
+        btnPoly.style.display = 'inline-block';
+        btnPoly.style.background = m==='poly' ? '#4a90e2' : '#444';
+    }
+    if(btnRect) {
+        btnRect.style.display = 'inline-block';
+        btnRect.style.background = m==='rect' ? '#4a90e2' : '#444';
+    }
+    if(btnCurve) {
+        btnCurve.style.display = 'inline-block';
+        btnCurve.style.background = m==='curve' ? '#4a90e2' : '#444';
+    }
+
+    // Gestionar inputs
+    document.getElementById('poly-inputs').style.display = (m==='poly' || m==='curve') ? 'block' : 'none';
     document.getElementById('rect-inputs').style.display = m==='rect' ? 'block' : 'none';
-    clearFloorDraft();
+    
+    // IMPORTANTE: NO llamamos a clearFloorDraft() aquí para permitir cambiar modo a mitad de dibujo
 }
 
 export function toggleFloorMode() { 
     if(state.isMeasuring) toggleMeasureMode(); 
+    
     state.isDrawingFloor = !state.isDrawingFloor; 
     const b=document.getElementById('btn-floor'),p=document.getElementById('floor-input-panel'); 
+    
     if(state.isDrawingFloor){ 
-        b.classList.add('active-tool');b.innerText="✏️ Cancel";p.style.display='block';
+        b.classList.add('active-tool');
+        b.innerText="✏️ Cancel";
+        p.style.display='block';
         deselectObject(); 
         setFloorMode('poly'); 
+        clearFloorDraft(); // Limpiamos solo al iniciar la herramienta desde cero
     } else { 
-        b.classList.remove('active-tool');b.innerText="✏️ Suelo";p.style.display='none';
+        b.classList.remove('active-tool');
+        b.innerText="✏️ Suelo";
+        p.style.display='none';
         clearFloorDraft(); 
     } 
 }
@@ -103,17 +140,26 @@ export function clearFloorDraft() {
 }
 
 export function addFloorPoint(p) { 
+    // Guardamos si este punto específico es parte de una curva
+    p.isCurve = (state.floorMode === 'curve');
     state.floorPoints.push(p); 
-    const m=new THREE.Mesh(new THREE.SphereGeometry(0.1,16,16),new THREE.MeshBasicMaterial({color:0x8e44ad}));
+    
+    // Color distinto para punto curva (Naranja) vs Recto (Morado)
+    const color = p.isCurve ? 0xe67e22 : 0x8e44ad;
+    const m=new THREE.Mesh(new THREE.SphereGeometry(0.1,16,16),new THREE.MeshBasicMaterial({color: color}));
     m.position.copy(p); state.scene.add(m); state.floorMarkers.push(m); 
 }
 
 export function updateFloorDraft(c, input=false) { 
     if(state.floorPoints.length===0) return; 
     if(state.floorLine) state.scene.remove(state.floorLine); 
+    
     const pts=[...state.floorPoints,c]; 
+    
+    // Dibujamos líneas rectas en el boceto para rendimiento, el suavizado final se hace en finishFloor
     state.floorLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0x9b59b6,linewidth:2})); 
     state.scene.add(state.floorLine); 
+    
     const l=state.floorPoints[state.floorPoints.length-1], d=l.distanceTo(c).toFixed(2); 
     let a=0; 
     if(state.floorPoints.length>=2){
@@ -125,6 +171,7 @@ export function updateFloorDraft(c, input=false) {
         document.getElementById('inp-ang').value=a;
     } 
     updateFloorInfoLabel(`${d}m`,c); 
+    
     if(state.floorPoints.length>=3) document.getElementById('btn-close-floor').style.display='block'; 
 }
 
@@ -178,27 +225,84 @@ export function updateFloorFromInput() {
 
 export function finishFloor() { 
     if(state.floorPoints.length<3) return; 
-    let a=0; const n=state.floorPoints.length;
-    for(let i=0;i<n;i++){ const j=(i+1)%n; a+=state.floorPoints[i].x*state.floorPoints[j].z; a-=state.floorPoints[j].x*state.floorPoints[i].z; }
-    a=Math.abs(a/2);
-    const pr=Math.round(a*PRICE_PER_M2); 
+
+    // --- ALGORITMO HÍBRIDO (RECTAS + CURVAS) ---
+    const finalPoints = [];
+    const pts = state.floorPoints;
+    const n = pts.length;
     
-    const s=new THREE.Shape();
-    s.moveTo(state.floorPoints[0].x,state.floorPoints[0].z);
-    for(let i=1;i<state.floorPoints.length;i++) s.lineTo(state.floorPoints[i].x,state.floorPoints[i].z);
-    s.lineTo(state.floorPoints[0].x,state.floorPoints[0].z); 
+    // Recorremos los puntos originales
+    for (let i = 0; i < n; i++) {
+        const curr = pts[i];
+        
+        // Si el punto actual es curva, miramos si forma parte de una secuencia
+        if (curr.isCurve) {
+            // Buscamos fin de la secuencia curva
+            let seq = [pts[(i-1+n)%n], curr]; // Incluimos el anterior para continuidad
+            let j = i + 1;
+            while(j < n && pts[j].isCurve) {
+                seq.push(pts[j]);
+                j++;
+            }
+            // Incluimos el siguiente para cerrar la tangente
+            seq.push(pts[j%n]);
+            
+            // Generamos curva local
+            const curve = new THREE.CatmullRomCurve3(seq);
+            const divisions = seq.length * 10; // Resolución adaptativa
+            const sp = curve.getSpacedPoints(divisions);
+            
+            // Añadimos puntos suavizados (evitando duplicar extremos)
+            if(finalPoints.length > 0) sp.shift(); 
+            sp.pop();
+            
+            finalPoints.push(...sp);
+            
+            // Avanzamos índice
+            i = j - 1;
+        } else {
+            // Punto recto normal
+            finalPoints.push(curr);
+        }
+    }
     
-    const m=new THREE.Mesh(new THREE.ExtrudeGeometry(s,{depth:0.05,bevelEnabled:false}),new THREE.MeshStandardMaterial({color:FLOOR_COLORS.garnet,roughness:0.5}));
-    m.rotation.x=Math.PI/2; m.position.y=0.01; m.receiveShadow=true; m.castShadow=true; 
-    m.userData={price:pr,locked:false,collides:true,isFloor:true,area:a.toFixed(2),name:"Suelo Caucho",ref:"S-001",dims:`${a.toFixed(2)} m2`,points:state.floorPoints.map(p=>({x:p.x,y:p.y,z:p.z}))}; 
+    // GENERAR GEOMETRÍA FINAL
+    const s = new THREE.Shape();
+    s.moveTo(finalPoints[0].x, finalPoints[0].z);
+    for(let i=1; i<finalPoints.length; i++) {
+        s.lineTo(finalPoints[i].x, finalPoints[i].z);
+    }
+    s.lineTo(finalPoints[0].x, finalPoints[0].z);
+
+    // CALCULAR ÁREA REAL
+    const points2D = finalPoints.map(p => ({ x: p.x, y: p.z }));
+    const area = Math.abs(THREE.ShapeUtils.area(points2D));
+    const pr = Math.round(area * PRICE_PER_M2); 
+    
+    const m = new THREE.Mesh(new THREE.ExtrudeGeometry(s,{depth:0.05, bevelEnabled:false}), new THREE.MeshStandardMaterial({color:FLOOR_COLORS.garnet,roughness:0.5}));
+    m.rotation.x = Math.PI/2; m.position.y = 0.01; m.receiveShadow = true; m.castShadow = true; 
+    
+    m.userData = {
+        price: pr,
+        locked: false,
+        collides: true,
+        isFloor: true,
+        area: area.toFixed(2),
+        name: "Suelo Mixto",
+        ref: "S-MIX",
+        dims: `${area.toFixed(2)} m2`,
+        // GUARDAMOS AMBOS: Puntos de control originales (para editar en futuro) y Contorno final (para DXF)
+        points: pts.map(p=>({x:p.x,y:p.y,z:p.z, isCurve: p.isCurve})),
+        finalPoints: finalPoints.map(p=>({x:p.x,y:p.y,z:p.z})) 
+    }; 
     
     state.scene.add(m);
     state.objectsInScene.push(m);
-    state.totalPrice+=pr;
+    state.totalPrice += pr;
     updateBudget();
     
-    updateFloorInfoLabel(`Area: ${a.toFixed(2)}m²`,state.floorPoints[n-1]);
-    setTimeout(()=>state.scene.remove(state.floorLabel),3000);
+    updateFloorInfoLabel(`Area: ${area.toFixed(2)}m²`, finalPoints[finalPoints.length-1]);
+    setTimeout(()=>state.scene.remove(state.floorLabel), 3000);
     
     clearFloorDraft(); 
     saveHistory(); 
@@ -225,7 +329,6 @@ export function applyTextureToSelectedFloor(url, filename) {
         floor.material.needsUpdate = true;
         
         floor.userData.img_2d = url; floor.userData.name = "Suelo: " + filename;
-        // updateUI() se llamará desde main o interaction, aquí solo lógica
         saveHistory();
         showToast("Textura aplicada al suelo.", 'success');
     });
@@ -242,7 +345,6 @@ export function updateTextureMapping() {
     state.selectedObject.userData.texSettings = { repeat: scale, rotation: rot, offsetX: offX, offsetY: offY };
 }
 
-// --- NUEVA FUNCIÓN AÑADIDA ---
 export async function prepareCustomFloor(url, filename) {
     const widthStr = await askUser("Ancho real de la imagen (m):", "10");
     const width = parseFloat(widthStr);
@@ -259,3 +361,4 @@ export async function prepareCustomFloor(url, filename) {
         showToast("Suelo personalizado creado.", 'success');
     });
 }
+// --- END OF FILE floor.js ---
