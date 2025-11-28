@@ -5,7 +5,6 @@ import { state } from './globals.js';
 
 export function wait(ms) { return new Promise(r=>setTimeout(r,ms)); }
 
-// --- NUEVO: Wrapper asíncrono para GLTFLoader ---
 export function loadGLTFPromise(url) {
     return new Promise((resolve, reject) => {
         if (!state.loader) reject("Loader no inicializado");
@@ -18,74 +17,37 @@ export function loadGLTFPromise(url) {
     });
 }
 
-// --- NUEVO: Gestión de Memoria (Limpieza profunda) ---
+// Limpieza profunda de memoria
 export function disposeHierarchy(node, removeFromScene = true) {
     if (!node) return;
-    
     node.traverse((child) => {
-        if (child.geometry) {
-            child.geometry.dispose();
-        }
+        if (child.geometry) child.geometry.dispose();
         if (child.material) {
-            if (Array.isArray(child.material)) {
-                child.material.forEach(m => {
-                    if (m.map) m.map.dispose();
-                    if (m.lightMap) m.lightMap.dispose();
-                    if (m.bumpMap) m.bumpMap.dispose();
-                    if (m.normalMap) m.normalMap.dispose();
-                    if (m.specularMap) m.specularMap.dispose();
-                    if (m.envMap) m.envMap.dispose();
-                    if (m.alphaMap) m.alphaMap.dispose();
-                    if (m.aoMap) m.aoMap.dispose();
-                    if (m.displacementMap) m.displacementMap.dispose();
-                    if (m.emissiveMap) m.emissiveMap.dispose();
-                    if (m.gradientMap) m.gradientMap.dispose();
-                    if (m.metalnessMap) m.metalnessMap.dispose();
-                    if (m.roughnessMap) m.roughnessMap.dispose();
-                    m.dispose();
-                });
-            } else {
-                const m = child.material;
+            const cleanMat = (m) => {
                 if (m.map) m.map.dispose();
                 if (m.lightMap) m.lightMap.dispose();
                 if (m.bumpMap) m.bumpMap.dispose();
                 if (m.normalMap) m.normalMap.dispose();
                 if (m.specularMap) m.specularMap.dispose();
                 if (m.envMap) m.envMap.dispose();
-                if (m.alphaMap) m.alphaMap.dispose();
-                if (m.aoMap) m.aoMap.dispose();
-                if (m.displacementMap) m.displacementMap.dispose();
-                if (m.emissiveMap) m.emissiveMap.dispose();
-                if (m.gradientMap) m.gradientMap.dispose();
-                if (m.metalnessMap) m.metalnessMap.dispose();
-                if (m.roughnessMap) m.roughnessMap.dispose();
                 m.dispose();
-            }
+            };
+            if (Array.isArray(child.material)) child.material.forEach(cleanMat);
+            else cleanMat(child.material);
         }
     });
-
-    if (removeFromScene && node.parent) {
-        node.parent.remove(node);
-    }
+    if (removeFromScene && node.parent) node.parent.remove(node);
 }
 
 export function showToast(msg, type = 'info') {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    
-    let icon = 'ℹ️';
-    if(type==='success') icon='✅';
-    if(type==='error') icon='❌';
-
+    let icon = type==='success'?'✅':(type==='error'?'❌':'ℹ️');
     toast.innerHTML = `<span>${icon}</span> <span>${msg}</span>`;
     container.appendChild(toast);
-    
     requestAnimationFrame(() => toast.classList.add('show'));
-    setTimeout(() => {
-        toast.classList.remove('show');
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 3000);
 }
 
 export function updateLoadingText(t) { 
@@ -118,44 +80,27 @@ export function askUser(title, defaultValue = "", isAlert = false) {
         }
 
         modal.style.display = 'flex';
-        
         const newBtnOk = btnOk.cloneNode(true);
         const newBtnCancel = btnCancel.cloneNode(true);
         btnOk.parentNode.replaceChild(newBtnOk, btnOk);
         btnCancel.parentNode.replaceChild(newBtnCancel, btnCancel);
 
-        const close = (val) => {
-            modal.style.display = 'none';
-            resolve(val);
-        };
-
+        const close = (val) => { modal.style.display = 'none'; resolve(val); };
         newBtnOk.onclick = () => close(isAlert ? true : input.value);
         newBtnCancel.onclick = () => close(null);
-        
-        if(!isAlert) {
-            input.onkeydown = (e) => { if(e.key === 'Enter') close(input.value); };
-        }
+        if(!isAlert) input.onkeydown = (e) => { if(e.key === 'Enter') close(input.value); };
     });
 }
 
-export function showMessage(title, text) {
-    return askUser(title, text, true);
-}
-
-export function toggleDisplay(id) { 
-    const e=document.getElementById(id);
-    if(e) e.style.display=e.style.display==='none'?'block':'none'; 
-}
+export function showMessage(title, text) { return askUser(title, text, true); }
+export function toggleDisplay(id) { const e=document.getElementById(id); if(e) e.style.display=e.style.display==='none'?'block':'none'; }
 
 export function preloadLogo(url, state) { 
-    const i=new Image();
-    i.crossOrigin="Anonymous";
-    i.src=url;
+    const i=new Image(); i.crossOrigin="Anonymous"; i.src=url;
     i.onload=()=>{
         const c=document.createElement('canvas');c.width=i.width;c.height=i.height;
         c.getContext('2d').drawImage(i,0,0);
-        state.loadedLogoImg=i;
-        state.loadedLogoBase64=c.toDataURL('image/png');
+        state.loadedLogoImg=i; state.loadedLogoBase64=c.toDataURL('image/png');
     };
     i.onerror=()=>{ state.loadedLogoBase64=createLogoUrl(); }; 
 }
@@ -171,9 +116,8 @@ export function processSafetyZones(model) {
         if (node.isMesh) {
             const meshName = node.name ? node.name.toLowerCase() : "";
             const matName = (node.material && node.material.name) ? node.material.name.toLowerCase() : "";
-            const isSafetyName = meshName.includes('seguridad') || meshName.includes('zona') || meshName.includes('safety');
-            const isSafetyMat = matName.includes('seguridad') || matName.includes('zona') || matName.includes('safety');
-            if (isSafetyName || isSafetyMat) {
+            const isSafety = meshName.includes('seguridad') || meshName.includes('zona') || matName.includes('seguridad') || matName.includes('zona');
+            if (isSafety) {
                 node.material = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide });
                 node.visible = state.showSafetyZones;
                 node.userData.isSafetyZone = true;
@@ -182,3 +126,34 @@ export function processSafetyZones(model) {
         }
     });
 }
+
+// CÁLCULO DE POSICIÓN SOLAR APROXIMADA
+export function calculateSunPosition(date, lat) {
+    // Algoritmo simplificado para elevación y azimut
+    const hour = date.getHours() + date.getMinutes()/60;
+    const dayOfYear = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
+    
+    // Declinación solar
+    const declination = 23.45 * Math.sin(THREE.MathUtils.degToRad(360/365 * (dayOfYear - 81)));
+    
+    // Ángulo horario (asumiendo mediodía solar a las 13:00 en España aprox)
+    const timeOffset = 13; 
+    const HRA = 15 * (hour - timeOffset);
+    
+    const latRad = THREE.MathUtils.degToRad(lat);
+    const decRad = THREE.MathUtils.degToRad(declination);
+    const hraRad = THREE.MathUtils.degToRad(HRA);
+
+    // Elevación
+    let elevation = Math.asin(Math.sin(decRad) * Math.sin(latRad) + Math.cos(decRad) * Math.cos(latRad) * Math.cos(hraRad));
+    let elevationDeg = THREE.MathUtils.radToDeg(elevation);
+
+    // Azimut
+    let azimuth = Math.acos((Math.sin(decRad) * Math.cos(latRad) - Math.cos(decRad) * Math.sin(latRad) * Math.cos(hraRad)) / Math.cos(elevation));
+    let azimuthDeg = THREE.MathUtils.radToDeg(azimuth);
+    
+    if (HRA > 0) azimuthDeg = 360 - azimuthDeg;
+
+    return { elevation: Math.max(0, elevationDeg), azimuth: azimuthDeg };
+}
+// --- END OF FILE utils.js ---

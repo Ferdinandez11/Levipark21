@@ -20,8 +20,14 @@ const internalState = {
     hemiLight: null,
     sky: null,
     sun: null,
-    sunAzimuth: 180,
-    sunElevation: 30,
+    // Configuración Solar Avanzada
+    sunConfig: {
+        date: new Date(),
+        latitude: 40.4168, // Madrid por defecto
+        azimuth: 180,
+        elevation: 45,
+        manualMode: false 
+    },
     gridHelper: null,
     shadowPlane: null,
 
@@ -71,6 +77,21 @@ const internalState = {
     rectPreviewMesh: null,
     isInputFocused: false,
 
+    // MODO PASEO (Walk Mode)
+    isWalkMode: false,
+    // Banderas de movimiento
+    moveForward: false,
+    moveBackward: false,
+    moveLeft: false,
+    moveRight: false,
+    moveUp: false,   // Nuevo: E
+    moveDown: false, // Nuevo: Q
+    isSlow: false,   // Nuevo: Espacio
+    
+    velocity: new THREE.Vector3(),
+    direction: new THREE.Vector3(),
+    prevTime: performance.now(),
+
     // Snapping & Safety
     isSnapping: false,
     showSafetyZones: true,
@@ -90,7 +111,6 @@ export function updateBudget() {
     const el = document.getElementById('budget-box');
     const discountEl = document.getElementById('discount-display');
     
-    // Accedemos directamente a internalState para evitar bucles infinitos con el Proxy
     let finalPrice = internalState.totalPrice;
     
     if(el) {
@@ -129,3 +149,4 @@ export const state = new Proxy(internalState, {
         return true;
     }
 });
+// --- END OF FILE globals.js ---

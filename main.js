@@ -2,6 +2,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { ARButton } from 'three/addons/webxr/ARButton.js';
@@ -14,23 +15,14 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { initSupabase } from './backend.js';
 import { state } from './globals.js'; 
 import { LOGO_URL } from './config.js';
-import { showToast, preloadLogo, processSafetyZones, loadGLTFPromise } from './utils.js';
+import { showToast, preloadLogo, processSafetyZones, loadGLTFPromise, calculateSunPosition } from './utils.js';
 import { loadSheetData } from './catalog.js';
-import { 
-    updateMeasureLine, clearMeasurements, updateFloorDraft, 
-    addFloorPoint, updateFloorInfoLabel, createMeasureMarker, toggleFloorMode
-} from './floor.js';
-import { 
-    selectObject, deselectObject, checkCollisions, 
-    snapToFloor, setGizmoMode 
-} from './interaction.js';
-import { 
-    saveHistory, saveToLocalStorage, loadProjectData 
-} from './history.js';
+import { updateMeasureLine, clearMeasurements, updateFloorDraft, addFloorPoint, updateFloorInfoLabel, createMeasureMarker, toggleFloorMode } from './floor.js';
+import { selectObject, deselectObject, checkCollisions, snapToFloor, setGizmoMode } from './interaction.js';
+import { saveHistory, saveToLocalStorage, loadProjectData } from './history.js';
 import { addFencePoint, updateFencePreview, toggleFenceMode } from './fence.js';
-
-// NUEVO: Importamos el gestor de UI
 import { initDOMEvents } from './ui_manager.js';
+import { toggleWalkMode, toggleRecordingState } from './app_actions.js';
 
 let dragStartData = { pos: new THREE.Vector3(), rot: new THREE.Euler(), scale: new THREE.Vector3() };
 let reticle;
@@ -94,32 +86,32 @@ async function init() {
     state.scene.add(state.shadowPlane);
 
     state.gridHelper = new THREE.GridHelper(100, 100, 0x888888, 0x444444);
-    state.gridHelper.visible = false; 
-    state.gridHelper.position.y = 0.002; 
-    state.scene.add(state.gridHelper);
+    state.gridHelper.visible = false; state.gridHelper.position.y = 0.002; state.scene.add(state.gridHelper);
 
+    // CONTROLES DE ORBITA
     state.controls = new OrbitControls(state.activeCamera, state.renderer.domElement); state.controls.enableDamping = true; 
+
+    // CONTROLES DE PASEO (First Person)
+    state.pointerControls = new PointerLockControls(state.activeCamera, document.body);
+    
+    // Sensibilidad del ratón reducida
+    state.pointerControls.pointerSpeed = 0.3; 
+    
+    state.pointerControls.addEventListener('unlock', () => { if(state.isWalkMode) toggleWalkMode(); });
 
     state.transformControl = new TransformControls(state.activeCamera, state.renderer.domElement);
     state.transformControl.addEventListener('dragging-changed', function (event) { 
         state.controls.enabled = !event.value; 
         if (event.value) { 
             if (state.selectedObject) { 
-                dragStartData.pos.copy(state.selectedObject.position); 
-                dragStartData.rot.copy(state.selectedObject.rotation);
-                dragStartData.scale.copy(state.selectedObject.scale);
+                dragStartData.pos.copy(state.selectedObject.position); dragStartData.rot.copy(state.selectedObject.rotation); dragStartData.scale.copy(state.selectedObject.scale);
             } 
         } else { 
             if (state.selectedObject) { 
                 if (state.isColliding) { 
-                    state.selectedObject.position.copy(dragStartData.pos); 
-                    state.selectedObject.rotation.copy(dragStartData.rot);
-                    state.selectedObject.scale.copy(dragStartData.scale);
-                    checkCollisions(); 
-                    showToast('¡Colisión detectada! Revertido.', 'error');
-                } else { 
-                    snapToFloor(state.selectedObject); 
-                } 
+                    state.selectedObject.position.copy(dragStartData.pos); state.selectedObject.rotation.copy(dragStartData.rot); state.selectedObject.scale.copy(dragStartData.scale);
+                    checkCollisions(); showToast('¡Colisión detectada! Revertido.', 'error');
+                } else { snapToFloor(state.selectedObject); } 
                 saveHistory(); 
             } 
         }
@@ -130,8 +122,6 @@ async function init() {
     updateSnapSettings();
     initSky();
     window.addEventListener('resize', onWindowResize);
-
-    // Escuchar eventos personalizados de UI Manager
     window.addEventListener('env-changed', updateSunPosition);
     window.addEventListener('snap-changed', updateSnapSettings);
 
@@ -149,58 +139,29 @@ async function init() {
         const s = localStorage.getItem('levipark_autosave'); if(s) { try { loadProjectData(JSON.parse(s)); } catch(e){} }
     }
 
-    // --- INICIALIZACIÓN DE EVENTOS DEL DOM SEPARADA ---
     initDOMEvents();
-
-    setupEventListeners(); // Mantiene listeners de pointer/keyboard (lógica de escena)
-    
+    setupEventListeners(); 
     preloadLogo(LOGO_URL, state);
-    
     setInterval(saveToLocalStorage, 30000);
     state.renderer.setAnimationLoop(render);
 }
 
-// placeObject se mantiene aquí porque es lógica de escena pura invocada por raycaster
 async function placeObject(p) { 
     document.getElementById('loading').style.display='block'; 
-    const u=state.productToPlace; 
-    const b64=state.pendingModelBase64; 
-    const assetId = state.pendingAssetId; 
-
+    const u=state.productToPlace; const b64=state.pendingModelBase64; const assetId = state.pendingAssetId; 
     try {
         const gltf = await loadGLTFPromise(u);
-        const m = gltf.scene; 
-        m.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;}}); 
-        processSafetyZones(m); 
-        m.position.set(p.x,0,p.z); 
-        m.userData=JSON.parse(JSON.stringify(window.currentProductData)); 
-        m.userData.modelFile=u; 
-        
-        if(assetId) {
-            m.userData.assetId = assetId;
-            m.userData.modelBase64 = null; 
-        } else {
-            m.userData.modelBase64 = b64; 
-        }
-
+        const m = gltf.scene; m.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;}}); 
+        processSafetyZones(m); m.position.set(p.x,0,p.z); 
+        m.userData=JSON.parse(JSON.stringify(window.currentProductData)); m.userData.modelFile=u; 
+        if(assetId) { m.userData.assetId = assetId; m.userData.modelBase64 = null; } else { m.userData.modelBase64 = b64; }
         m.userData.locked=false; m.userData.collides=true; 
-        state.scene.add(m); state.objectsInScene.push(m); 
-        state.totalPrice += m.userData.price; 
-        
+        state.scene.add(m); state.objectsInScene.push(m); state.totalPrice += m.userData.price; 
         selectObject(m); snapToFloor(m); saveHistory(); 
-        
-        state.productToPlace=null; 
-        state.pendingModelBase64=null; 
-        state.pendingAssetId=null;
-        
+        state.productToPlace=null; state.pendingModelBase64=null; state.pendingAssetId=null;
         document.querySelectorAll('.btn-product').forEach(btn=>btn.classList.remove('active')); 
         showToast("Objeto colocado", 'success'); 
-    } catch(err) {
-        console.error(err);
-        showToast("Error al colocar objeto", 'error');
-    } finally {
-        document.getElementById('loading').style.display='none'; 
-    }
+    } catch(err) { console.error(err); showToast("Error al colocar objeto", 'error'); } finally { document.getElementById('loading').style.display='none'; }
 }
 
 function setupPostProcessing() {
@@ -215,115 +176,99 @@ function setupPostProcessing() {
 function initSky() {
     state.sky = new Sky(); state.sky.scale.setScalar(450000); state.scene.add(state.sky); state.sun = new THREE.Vector3();
     const uniforms = state.sky.material.uniforms; uniforms['turbidity'].value = 10; uniforms['rayleigh'].value = 2; uniforms['mieCoefficient'].value = 0.005; uniforms['mieDirectionalG'].value = 0.8;
+    // IMPORTANTE: Empezar en blanco por defecto
+    state.sky.visible = false;
     updateSunPosition();
 }
+
 function updateSunPosition() {
-    const phi = THREE.MathUtils.degToRad(90 - state.sunElevation); const theta = THREE.MathUtils.degToRad(state.sunAzimuth);
-    state.sun.setFromSphericalCoords(1, phi, theta); state.sky.material.uniforms['sunPosition'].value.copy(state.sun);
+    let phi, theta;
+
+    if (state.sunConfig.manualMode) {
+        phi = THREE.MathUtils.degToRad(90 - state.sunConfig.elevation);
+        theta = THREE.MathUtils.degToRad(state.sunConfig.azimuth);
+    } else {
+        const sunPos = calculateSunPosition(state.sunConfig.date, state.sunConfig.latitude);
+        phi = THREE.MathUtils.degToRad(90 - sunPos.elevation);
+        theta = THREE.MathUtils.degToRad(sunPos.azimuth);
+        const elAz = document.getElementById('sun-azimuth'); if(elAz) elAz.value = sunPos.azimuth;
+        const elEl = document.getElementById('sun-elevation'); if(elEl) elEl.value = sunPos.elevation;
+    }
+
+    state.sun.setFromSphericalCoords(1, phi, theta);
+    state.sky.material.uniforms['sunPosition'].value.copy(state.sun);
     state.dirLight.position.setFromSphericalCoords(100, phi, theta);
+    
+    const elevation = state.sunConfig.manualMode ? state.sunConfig.elevation : calculateSunPosition(state.sunConfig.date, state.sunConfig.latitude).elevation;
+    if(elevation < 10) state.dirLight.color.setHSL(0.1, 0.8, 0.5); 
+    else state.dirLight.color.setHSL(0.1, 0, 1); 
+
     if (state.renderer && state.sky.visible) { 
         const pmremGenerator = new THREE.PMREMGenerator(state.renderer); 
         state.scene.environment = pmremGenerator.fromScene(state.sky).texture; 
         state.scene.background = null; 
     } else {
         state.scene.environment = null;
-        state.scene.background = new THREE.Color(0xffffff);
+        state.scene.background = new THREE.Color(0xffffff); 
     }
 }
 
 function updateSnapSettings() {
-    if(state.isSnapping) {
-        state.transformControl.setTranslationSnap(0.5); state.transformControl.setRotationSnap(THREE.MathUtils.degToRad(45));
-    } else {
-        state.transformControl.setTranslationSnap(null); state.transformControl.setRotationSnap(THREE.MathUtils.degToRad(15));
-    }
+    if(state.isSnapping) { state.transformControl.setTranslationSnap(0.5); state.transformControl.setRotationSnap(THREE.MathUtils.degToRad(45)); }
+    else { state.transformControl.setTranslationSnap(null); state.transformControl.setRotationSnap(THREE.MathUtils.degToRad(15)); }
 }
 
-// Listener de input y eventos de ventana (Lógica Core)
 function setupEventListeners() {
     window.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
 }
 
-
 function onPointerDown(event) {
-    if (event.target.closest('.modal-overlay')) return;
-    if (event.target.closest('#ui-panel') || event.target.closest('#edit-panel') || event.target.closest('#env-panel') || event.target.closest('#floor-input-panel') || event.target.closest('#action-panel') || event.target.closest('#history-controls') || event.target.closest('#top-bar-controls') || event.target.closest('#qr-modal')) return;
+    if (state.isWalkMode) return;
+    if (event.target.closest('.modal-overlay') || event.target.closest('#ui-panel') || event.target.closest('#edit-panel') || event.target.closest('#env-panel') || event.target.closest('#floor-input-panel') || event.target.closest('#action-panel') || event.target.closest('#history-controls') || event.target.closest('#top-bar-controls') || event.target.closest('#qr-modal')) return;
     if (state.transformControl.axis) return;
-    
     state.pointer.x = (event.clientX / window.innerWidth) * 2 - 1; state.pointer.y = - (event.clientY / window.innerHeight) * 2 + 1; state.raycaster.setFromCamera(state.pointer, state.activeCamera); 
-
     if (state.renderer.xr.isPresenting && state.productToPlace && reticle.visible) { placeObject(reticle.position); return; }
-    
     if (state.isDrawingFloor) { 
         const i = state.raycaster.intersectObject(state.shadowPlane); 
         if (i.length>0) {
-            // Aceptamos Poly o Curve como puntos
-            if (state.floorMode === 'poly' || state.floorMode === 'curve') {
-                addFloorPoint(i[0].point); 
-            } else if (state.floorMode === 'rect') {
+            if (state.floorMode === 'poly' || state.floorMode === 'curve') { addFloorPoint(i[0].point); } 
+            else if (state.floorMode === 'rect') {
                 state.rectStartPoint = i[0].point; 
                 const g = new THREE.PlaneGeometry(0.1, 0.1); g.rotateX(-Math.PI/2);
                 state.rectPreviewMesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x9b59b6, transparent: true, opacity: 0.5 }));
-                state.rectPreviewMesh.position.copy(state.rectStartPoint); state.rectPreviewMesh.position.y += 0.02;
-                state.scene.add(state.rectPreviewMesh);
+                state.rectPreviewMesh.position.copy(state.rectStartPoint); state.rectPreviewMesh.position.y += 0.02; state.scene.add(state.rectPreviewMesh);
             }
-        }
-        return; 
+        } return; 
     }
-
-    if (state.isDrawingFence) {
-    const i = state.raycaster.intersectObject(state.shadowPlane);
-    if (i.length > 0) {
-        addFencePoint(i[0].point);
-    }
-    return;
-}
+    if (state.isDrawingFence) { const i = state.raycaster.intersectObject(state.shadowPlane); if (i.length > 0) addFencePoint(i[0].point); return; }
     if (state.isMeasuring) { 
         const i = state.raycaster.intersectObjects([...state.objectsInScene, state.shadowPlane], true); 
-        if(i.length>0) { 
-            if(state.measurePoints.length===2) clearMeasurements(); 
-            state.measurePoints.push(i[0].point); 
-            createMeasureMarker(i[0].point); 
-            if(state.measurePoints.length===2) updateMeasureLine(i[0].point); 
-        } 
+        if(i.length>0) { if(state.measurePoints.length===2) clearMeasurements(); state.measurePoints.push(i[0].point); createMeasureMarker(i[0].point); if(state.measurePoints.length===2) updateMeasureLine(i[0].point); } 
         return; 
     }
     if (state.productToPlace) { const i = state.raycaster.intersectObject(state.shadowPlane); if (i.length>0) placeObject(i[0].point); return; }
-
     const i = state.raycaster.intersectObjects(state.objectsInScene, true);
     if (i.length > 0) { let s = i[0].object; while (s.parent && !state.objectsInScene.includes(s)) s = s.parent; if(state.objectsInScene.includes(s)) selectObject(s); }
     else deselectObject();
 }
 
 function onPointerMove(event) {
-    if (state.isInputFocused) return;
+    if (state.isInputFocused || state.isWalkMode) return;
     state.pointer.x = (event.clientX / window.innerWidth) * 2 - 1; state.pointer.y = - (event.clientY / window.innerHeight) * 2 + 1; state.raycaster.setFromCamera(state.pointer, state.activeCamera);
-    
-    if (state.isDrawingFloor && (state.floorMode === 'poly' || state.floorMode === 'curve') && state.floorPoints.length>0) { 
-        const i = state.raycaster.intersectObject(state.shadowPlane); 
-        if(i.length>0) updateFloorDraft(i[0].point); 
-    }
+    if (state.isDrawingFloor && (state.floorMode === 'poly' || state.floorMode === 'curve') && state.floorPoints.length>0) { const i = state.raycaster.intersectObject(state.shadowPlane); if(i.length>0) updateFloorDraft(i[0].point); }
     if (state.isDrawingFloor && state.floorMode === 'rect' && state.rectStartPoint && state.rectPreviewMesh) {
         const i = state.raycaster.intersectObject(state.shadowPlane);
         if (i.length > 0) {
-            const end = i[0].point;
-            const width = Math.abs(end.x - state.rectStartPoint.x);
-            const depth = Math.abs(end.z - state.rectStartPoint.z);
-            const centerX = (state.rectStartPoint.x + end.x) / 2;
-            const centerZ = (state.rectStartPoint.z + end.z) / 2;
-            state.rectPreviewMesh.scale.set(Math.max(0.1, width), Math.max(0.1, depth), 1); 
-            state.rectPreviewMesh.position.set(centerX, 0.02, centerZ);
-            updateFloorInfoLabel(`${width.toFixed(2)}m x ${depth.toFixed(2)}m`, new THREE.Vector3(centerX, 0, centerZ));
+            const end = i[0].point; const width = Math.abs(end.x - state.rectStartPoint.x); const depth = Math.abs(end.z - state.rectStartPoint.z); const centerX = (state.rectStartPoint.x + end.x) / 2; const centerZ = (state.rectStartPoint.z + end.z) / 2;
+            state.rectPreviewMesh.scale.set(Math.max(0.1, width), Math.max(0.1, depth), 1); state.rectPreviewMesh.position.set(centerX, 0.02, centerZ); updateFloorInfoLabel(`${width.toFixed(2)}m x ${depth.toFixed(2)}m`, new THREE.Vector3(centerX, 0, centerZ));
         }
     }
     if (state.isMeasuring && state.measurePoints.length===1) { const i = state.raycaster.intersectObjects([...state.objectsInScene, state.shadowPlane], true); if(i.length>0) updateMeasureLine(i[0].point); }
-    if (state.isDrawingFence) {
-    const i = state.raycaster.intersectObject(state.shadowPlane);
-    if(i.length > 0) updateFencePreview();
-    }
+    if (state.isDrawingFence) { const i = state.raycaster.intersectObject(state.shadowPlane); if(i.length > 0) updateFencePreview(); }
 }
 
 function onPointerUp(event) {
@@ -331,43 +276,95 @@ function onPointerUp(event) {
         const width = state.rectPreviewMesh.scale.x; const depth = state.rectPreviewMesh.scale.y; const pos = state.rectPreviewMesh.position.clone();
         state.scene.remove(state.rectPreviewMesh); state.scene.remove(state.floorLabel); state.rectStartPoint = null; state.rectPreviewMesh = null;
         if (width < 0.2 || depth < 0.2) return; 
-        
-        // Importación dinámica de tema para no romper encapsulamiento, aunque es un color suelto.
         import('./config.js').then(config => {
-             const area = width * depth; const pr = Math.round(area * 40); 
-             const mat = new THREE.MeshStandardMaterial({ color: config.FLOOR_COLORS.garnet, roughness:0.5 });
-             const m = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), mat);
-             m.rotation.x = -Math.PI/2; m.position.set(pos.x, 0.01, pos.z); m.receiveShadow = true; m.castShadow = true;
+             const area = width * depth; const pr = Math.round(area * 40); const mat = new THREE.MeshStandardMaterial({ color: config.FLOOR_COLORS.garnet, roughness:0.5 });
+             const m = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), mat); m.rotation.x = -Math.PI/2; m.position.set(pos.x, 0.01, pos.z); m.receiveShadow = true; m.castShadow = true;
              m.userData = { price: pr, locked:false, collides:true, isFloor:true, area: area.toFixed(2), name: "Suelo Rectangular", ref: "S-Rect", dims: `${width.toFixed(2)}x${depth.toFixed(2)}` };
-             state.scene.add(m); state.objectsInScene.push(m); 
-             state.totalPrice += pr; 
-             selectObject(m); saveHistory(); toggleFloorMode();
+             state.scene.add(m); state.objectsInScene.push(m); state.totalPrice += pr; selectObject(m); saveHistory(); toggleFloorMode();
         });
     }
 }
 
 function onKeyDown(e) { 
     if(state.isInputFocused) return;
-    // Utilizamos imports dinámicos o funciones exportadas para acciones que no están en main
+    if(state.isWalkMode) {
+        switch ( e.code ) { 
+            case 'ArrowUp': case 'KeyW': state.moveForward = true; break; 
+            case 'ArrowLeft': case 'KeyA': state.moveLeft = true; break; 
+            case 'ArrowDown': case 'KeyS': state.moveBackward = true; break; 
+            case 'ArrowRight': case 'KeyD': state.moveRight = true; break; 
+            case 'KeyE': state.moveUp = true; break;     
+            case 'KeyQ': state.moveDown = true; break;   
+            
+            // FIX: Evitamos que el espacio pulse botones del DOM
+            case 'Space': 
+                e.preventDefault(); 
+                state.isSlow = true; 
+                break;    
+
+            case 'KeyR': toggleRecordingState(); break;  
+            case 'Escape': toggleWalkMode(); break; 
+        }
+        return;
+    }
     if(e.key==='Delete') import('./interaction.js').then(m=>m.deleteSelected()); 
-    if(e.key==='t') setGizmoMode('translate'); 
-    if(e.key==='r') setGizmoMode('rotate');
-    if(e.key==='e') setGizmoMode('scale');
+    if(e.key==='t') setGizmoMode('translate'); if(e.key==='r') setGizmoMode('rotate'); if(e.key==='e') setGizmoMode('scale');
     if(e.key==='c' || e.key==='C') import('./interaction.js').then(m=>m.cloneSelected());
     if(e.key==='s' || e.key==='S') document.getElementById('btn-snap').click();
-    if(e.ctrlKey && e.key==='z') import('./history.js').then(m=>m.undo()); 
-    if(e.ctrlKey && e.key==='y') import('./history.js').then(m=>m.redo());
+    if(e.ctrlKey && e.key==='z') import('./history.js').then(m=>m.undo()); if(e.ctrlKey && e.key==='y') import('./history.js').then(m=>m.redo());
 }
 
+function onKeyUp(e) {
+    if(state.isWalkMode) {
+        switch ( e.code ) { 
+            case 'ArrowUp': case 'KeyW': state.moveForward = false; break; 
+            case 'ArrowLeft': case 'KeyA': state.moveLeft = false; break; 
+            case 'ArrowDown': case 'KeyS': state.moveBackward = false; break; 
+            case 'ArrowRight': case 'KeyD': state.moveRight = false; break; 
+            case 'KeyE': state.moveUp = false; break;
+            case 'KeyQ': state.moveDown = false; break;
+            case 'Space': state.isSlow = false; break;
+        }
+    }
+}
 
 function onWindowResize() { 
-    const w=window.innerWidth, h=window.innerHeight; 
-    state.perspectiveCamera.aspect=w/h; state.perspectiveCamera.updateProjectionMatrix(); 
+    const w=window.innerWidth, h=window.innerHeight; state.perspectiveCamera.aspect=w/h; state.perspectiveCamera.updateProjectionMatrix(); 
     state.renderer.setSize(w,h); state.composer.setSize(w,h); 
 }
 
 function render(timestamp, frame) { 
-    state.controls.update(); 
+    if (state.isWalkMode) {
+        const time = performance.now();
+        const delta = ( time - state.prevTime ) / 1000;
+
+        // Amortiguación
+        state.velocity.x -= state.velocity.x * 10.0 * delta;
+        state.velocity.z -= state.velocity.z * 10.0 * delta;
+        state.velocity.y -= state.velocity.y * 10.0 * delta; 
+
+        state.direction.z = Number( state.moveForward ) - Number( state.moveBackward );
+        state.direction.x = Number( state.moveRight ) - Number( state.moveLeft );
+        state.direction.y = Number( state.moveUp ) - Number( state.moveDown ); 
+        state.direction.normalize(); 
+
+        // VELOCIDAD: Normal 40 (Bajada), Lenta 10 (Bajada)
+        const speed = state.isSlow ? 10.0 : 40.0; 
+
+        if ( state.moveForward || state.moveBackward ) state.velocity.z -= state.direction.z * speed * delta;
+        if ( state.moveLeft || state.moveRight ) state.velocity.x -= state.direction.x * speed * delta;
+        if ( state.moveUp || state.moveDown ) state.velocity.y -= state.direction.y * speed * delta; 
+
+        state.pointerControls.moveRight( - state.velocity.x * delta );
+        state.pointerControls.moveForward( - state.velocity.z * delta );
+        state.pointerControls.getObject().position.y += state.velocity.y * delta;
+
+        state.prevTime = time;
+    } else {
+        state.controls.update(); 
+    }
+
     if (state.renderer.xr.isPresenting) state.renderer.render(state.scene, state.activeCamera); 
     else state.composer.render(); 
 }
+// --- END OF FILE main.js ---
