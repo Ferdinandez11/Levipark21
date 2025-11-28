@@ -55,6 +55,8 @@ function parseCSVtoTree(csv) {
             desc: item['DESC'] || "", 
             dims: item['DIMS'] || "", 
             url_tech: item['URL_TECH'] || "#", 
+            url_cert: item['URL_CERT'] || "#", 
+            url_inst: item['URL_INST'] || "#", 
             img_2d: item['IMG_2D'] || ""
         };
 
