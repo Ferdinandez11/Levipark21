@@ -130,13 +130,36 @@ export async function loadProjectById(id) {
 export async function saveProjectToCloud() {
     if (!state.currentUser) { showToast("Debes iniciar sesión", 'error'); return; }
 
-    // Nombre por defecto
+    // Importamos dinámicamente la función de captura para evitar dependencias circulares
+    const { getSceneScreenshotBlob } = await import('./app_actions.js');
+
     let defaultName = "Nuevo Parque";
     let name = await askUser("Nombre del Proyecto:", defaultName);
     if (!name) return;
 
     document.getElementById('loading').style.display = 'block';
-    updateLoadingText("Guardando...");
+    
+    // --- NUEVO: CAPTURA Y SUBIDA DE IMAGEN ---
+    updateLoadingText("Generando miniatura...");
+    const imageBlob = await getSceneScreenshotBlob();
+    const fileName = `${state.currentUser.id}/${Date.now()}.jpg`; // Ruta: usuario/fecha.jpg
+
+    updateLoadingText("Subiendo imagen...");
+    const { data: uploadData, error: uploadError } = await supabase
+        .storage
+        .from('thumbnails')
+        .upload(fileName, imageBlob, { upsert: true });
+
+    let publicURL = null;
+    if (!uploadError) {
+        const res = supabase.storage.from('thumbnails').getPublicUrl(fileName);
+        publicURL = res.data.publicUrl;
+    } else {
+        console.warn("Error subiendo imagen:", uploadError);
+    }
+    // -----------------------------------------
+
+    updateLoadingText("Guardando datos...");
 
     const itemsSafe = state.objectsInScene.map(obj => {
         const data = JSON.parse(JSON.stringify(obj.userData));
@@ -147,23 +170,31 @@ export async function saveProjectToCloud() {
     const projectData = { date: new Date().toISOString(), totalPrice: state.totalPrice, items: itemsSafe, assetCache: state.assetCache };
     let error = null;
 
-    // UPDATE si ya existe ID, INSERT si es nuevo
+    // Objeto a guardar (Añadimos thumbnail_url)
+    const payload = {
+        name: name,
+        data: projectData,
+        total_price: state.totalPrice,
+        thumbnail_url: publicURL, // <--- GUARDAMOS LA URL AQUÍ
+        updated_at: new Date()
+    };
+
     if (state.currentProjectId) {
-        const res = await supabase.from('projects').update({ 
-            name: name, data: projectData, total_price: state.totalPrice, updated_at: new Date() 
-        }).eq('id', state.currentProjectId);
+        // UPDATE
+        const res = await supabase.from('projects').update(payload).eq('id', state.currentProjectId);
         error = res.error;
     } else {
-        const res = await supabase.from('projects').insert([{ 
-            user_id: state.currentUser.id, name: name, data: projectData, total_price: state.totalPrice, status: 'draft' 
-        }]).select().single();
+        // INSERT
+        payload.user_id = state.currentUser.id;
+        payload.status = 'draft';
+        const res = await supabase.from('projects').insert([payload]).select().single();
         if (res.data) state.currentProjectId = res.data.id;
         error = res.error;
     }
 
     document.getElementById('loading').style.display = 'none';
     if (error) showToast("Error: " + error.message, 'error');
-    else showToast("¡Guardado correctamente!", 'success');
+    else showToast("¡Guardado con imagen!", 'success');
 }
 
 // 3. LISTAR (Para el modal antiguo dentro del editor, opcional)

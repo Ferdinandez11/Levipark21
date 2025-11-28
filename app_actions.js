@@ -171,4 +171,29 @@ export function handleFileUpload(e) {
     };
     e.target.value = "";
 }
+export async function getSceneScreenshotBlob() {
+    return new Promise((resolve) => {
+        // 1. Ocultar gizmos y ayudas visuales para que la foto salga limpia
+        const prevGrid = state.gridHelper.visible;
+        state.gridHelper.visible = false;
+        state.transformControl.detach();
+        if(state.measureLine) state.measureLine.visible = false;
+        state.measureMarkers.forEach(m => m.visible = false);
+        state.outlinePass.selectedObjects = []; // Quitar selección amarilla
+
+        // 2. Renderizar un frame forzado
+        state.renderer.render(state.scene, state.activeCamera);
+
+        // 3. Convertir canvas a Blob (archivo)
+        state.renderer.domElement.toBlob((blob) => {
+            // 4. Restaurar ayudas visuales
+            state.gridHelper.visible = prevGrid;
+            if(state.measureLine) state.measureLine.visible = true;
+            state.measureMarkers.forEach(m => m.visible = true);
+            if(state.selectedObject) import('./interaction.js').then(m=>m.selectObject(state.selectedObject));
+
+            resolve(blob);
+        }, 'image/jpeg', 0.8); // Calidad 80% para que pese poco
+    });
+}
 // --- END OF FILE app_actions.js ---
