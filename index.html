@@ -98,7 +98,7 @@
         </div>
     </div>
 
-    <!-- NUEVO MODAL CATÁLOGO VISUAL -->
+    <!-- MODAL CATÁLOGO VISUAL -->
     <div id="catalog-modal" class="modal-overlay" style="display:none; align-items:flex-start; padding-top: 50px;">
         <div class="modal-box" style="width: 90%; max-width: 1000px; height: 85vh; display:flex; flex-direction:column; text-align:left; background:#222; border:1px solid #555;">
             
@@ -123,8 +123,10 @@
         </div>
     </div>
 
-    <div id="btn-toggle-menu">☰</div>
-    <div id="btn-toggle-env">☀</div> 
+    <!-- BOTONES FLOTANTES IZQUIERDA -->
+    <div id="btn-toggle-menu" title="Menú Herramientas">☰</div>
+    <div id="btn-toggle-catalog" title="Abrir Catálogo">📖</div> 
+    <div id="btn-toggle-env" title="Ambiente">☀</div> 
     
     <!-- BARRA SUPERIOR -->
     <div id="top-bar-controls">
@@ -146,23 +148,47 @@
         </div>
     </div>
 
+    <!-- PANEL DE ACCIONES (Botones redondos) -->
     <div id="action-panel">
-        <!-- BOTONES NUBE (Inicialmente ocultos) -->
-        <button id="btn-save-cloud" class="btn-big-action" style="background:#8e44ad; display:none;">☁️ Guardar en Nube</button>
-        <button id="btn-load-cloud" class="btn-big-action" style="background:#9b59b6; display:none;">📂 Abrir de Nube</button>
-        <div style="height:10px;"></div>
+        <!-- BOTONES NUBE -->
+        <button id="btn-save-cloud" class="btn-big-action" style="background:#8e44ad; display:none;">
+            <span class="icon">☁️</span> <span class="text">Guardar Nube</span>
+        </button>
+        <button id="btn-load-cloud" class="btn-big-action" style="background:#9b59b6; display:none;">
+            <span class="icon">📂</span> <span class="text">Abrir Nube</span>
+        </button>
         
-        <button id="btn-mobile-ar" class="btn-big-action" style="background:#2c3e50;">📱 QR Realidad Aumentada</button>
-        <button id="btn-save-project" class="btn-big-action" style="background:#27ae60;">💾 Guardar Archivo Local</button>
-        <button id="btn-load-project" class="btn-big-action" style="background:#f39c12;">📂 Cargar Archivo Local</button>
+        <div style="height:5px;"></div>
+        
+        <button id="btn-mobile-ar" class="btn-big-action" style="background:#2c3e50;">
+            <span class="icon">📱</span> <span class="text">QR Realidad Aumentada</span>
+        </button>
+        <button id="btn-save-project" class="btn-big-action" style="background:#27ae60;">
+            <span class="icon">💾</span> <span class="text">Guardar Local</span>
+        </button>
+        <button id="btn-load-project" class="btn-big-action" style="background:#f39c12;">
+            <span class="icon">📂</span> <span class="text">Cargar Local</span>
+        </button>
         <input type="file" id="project-upload" style="display: none;" accept=".json">
-        <div style="height:10px;"></div>
-        <button id="btn-screenshot" class="btn-big-action">📷 Foto</button>
-        <button id="btn-record-video" class="btn-big-action" style="background:#d35400;">🎥 Video 360º</button>
         
-        <button id="btn-export-pdf" class="btn-big-action">📄 Exportar Dossier</button>
-        <button id="btn-export-dxf" class="btn-big-action" style="background:#0984e3;">📐 Exportar CAD (.dxf)</button>
-        <button id="btn-export-glb" class="btn-big-action" style="background:#e67e22;">📦 Exportar 3D (.glb)</button>
+        <div style="height:5px;"></div>
+        
+        <button id="btn-screenshot" class="btn-big-action">
+            <span class="icon">📷</span> <span class="text">Foto</span>
+        </button>
+        <button id="btn-record-video" class="btn-big-action" style="background:#d35400;">
+            <span class="icon">🎥</span> <span class="text">Video 360º</span>
+        </button>
+        
+        <button id="btn-export-pdf" class="btn-big-action">
+            <span class="icon">📄</span> <span class="text">Exportar Dossier</span>
+        </button>
+        <button id="btn-export-dxf" class="btn-big-action" style="background:#0984e3;">
+            <span class="icon">📐</span> <span class="text">Exportar CAD (.dxf)</span>
+        </button>
+        <button id="btn-export-glb" class="btn-big-action" style="background:#e67e22;">
+            <span class="icon">📦</span> <span class="text">Exportar 3D (.glb)</span>
+        </button>
     </div>
 
     <div id="env-panel">
@@ -238,7 +264,7 @@
     </div>
 
     <div id="ui-panel">
-        <h1>-----_LEVIPARK21 Playgrounds <button class="panel-header-btn" id="btn-close-menu">×</button></h1>
+        <h1>LEVIPARK21 Playgrounds <button class="panel-header-btn" id="btn-close-menu">×</button></h1>
         <button class="projection-toggle" id="btn-projection">👁️ Perspectiva</button>
         <div class="views-grid">
             <button class="btn-view" id="view-iso">📦 Iso</button>
@@ -254,11 +280,6 @@
         <button id="btn-upload-trigger" class="btn-view" style="width:100%; margin-bottom:15px; background:#4a90e2; border:none; color:white; font-weight:bold; padding:10px; cursor:pointer;">📂 Subir Modelo 3D</button>
         <input type="file" id="file-upload" style="display: none;" accept=".glb,.gltf,.jpg,.jpeg,.png">
         <button id="clear-measures" class="btn-view" style="width:100%; margin-bottom:10px; display:none; background:#d9534f; border:none;">🗑️ Borrar Medidas</button>
-        
-        <!-- SECCIÓN CATÁLOGO NUEVA -->
-        <button id="btn-open-catalog" class="btn-big-action" style="background:#e67e22; margin-bottom:10px; width:100%; justify-content: center;">
-            📖 Catálogo
-        </button>
         
         <!-- CAJA DE PRESUPUESTO ACTUALIZADA -->
         <div id="budget-box" style="margin-top:15px; border-top:1px solid #555; padding-top:10px; font-size:20px; font-weight:bold; color:#4cd137; text-align:right;">0 €</div>

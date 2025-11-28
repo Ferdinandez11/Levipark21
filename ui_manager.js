@@ -5,7 +5,6 @@ import { toggleDisplay, showToast } from './utils.js';
 import { toggleMeasureMode, toggleFloorMode, clearMeasurements, addPointFromInput, finishFloor, updateFloorFromInput, setFloorColor, updateTextureMapping, updateFloorInfoLabel, undoLastFloorPoint } from './floor.js';
 import { deleteSelected, cloneSelected, snapToFloor, toggleLock, toggleObjectCollision, setGizmoMode } from './interaction.js';
 import { undo, redo, resetScene, saveProject, loadProjectData } from './history.js';
-// IMPORT ACTUALIZADO:
 import { openCatalogModal, filterCatalogVisual, renderLines } from './catalog.js';
 import { toggleFenceMode, finishFence } from './fence.js';
 import { generateDossier, exportToMobile } from './exporters.js';
@@ -192,9 +191,10 @@ export function initDOMEvents() {
 
     // --- NUEVO: Eventos del Catálogo Visual ---
     
-    const btnOpenCat = document.getElementById('btn-open-catalog');
-    if (btnOpenCat) {
-        btnOpenCat.addEventListener('click', () => {
+    // Botón flotante naranja
+    const btnToggleCat = document.getElementById('btn-toggle-catalog');
+    if (btnToggleCat) {
+        btnToggleCat.addEventListener('click', () => {
             openCatalogModal();
         });
     }
