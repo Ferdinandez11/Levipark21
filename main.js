@@ -93,8 +93,6 @@ async function init() {
 
     // CONTROLES DE PASEO (First Person)
     state.pointerControls = new PointerLockControls(state.activeCamera, document.body);
-    
-    // Sensibilidad del ratón reducida
     state.pointerControls.pointerSpeed = 0.3; 
     
     state.pointerControls.addEventListener('unlock', () => { if(state.isWalkMode) toggleWalkMode(); });
@@ -176,7 +174,6 @@ function setupPostProcessing() {
 function initSky() {
     state.sky = new Sky(); state.sky.scale.setScalar(450000); state.scene.add(state.sky); state.sun = new THREE.Vector3();
     const uniforms = state.sky.material.uniforms; uniforms['turbidity'].value = 10; uniforms['rayleigh'].value = 2; uniforms['mieCoefficient'].value = 0.005; uniforms['mieDirectionalG'].value = 0.8;
-    // IMPORTANTE: Empezar en blanco por defecto
     state.sky.visible = false;
     updateSunPosition();
 }
@@ -295,13 +292,7 @@ function onKeyDown(e) {
             case 'ArrowRight': case 'KeyD': state.moveRight = true; break; 
             case 'KeyE': state.moveUp = true; break;     
             case 'KeyQ': state.moveDown = true; break;   
-            
-            // FIX: Evitamos que el espacio pulse botones del DOM
-            case 'Space': 
-                e.preventDefault(); 
-                state.isSlow = true; 
-                break;    
-
+            case 'Space': e.preventDefault(); state.isSlow = true; break;    
             case 'KeyR': toggleRecordingState(); break;  
             case 'Escape': toggleWalkMode(); break; 
         }
@@ -336,9 +327,10 @@ function onWindowResize() {
 function render(timestamp, frame) { 
     if (state.isWalkMode) {
         const time = performance.now();
-        const delta = ( time - state.prevTime ) / 1000;
+        
+        // FIX: Limitar delta máximo para evitar saltos si el PC se congela (max 0.1s)
+        const delta = Math.min(( time - state.prevTime ) / 1000, 0.1);
 
-        // Amortiguación
         state.velocity.x -= state.velocity.x * 10.0 * delta;
         state.velocity.z -= state.velocity.z * 10.0 * delta;
         state.velocity.y -= state.velocity.y * 10.0 * delta; 
@@ -348,8 +340,7 @@ function render(timestamp, frame) {
         state.direction.y = Number( state.moveUp ) - Number( state.moveDown ); 
         state.direction.normalize(); 
 
-        // VELOCIDAD: Normal 40 (Bajada), Lenta 10 (Bajada)
-        const speed = state.isSlow ? 10.0 : 40.0; 
+        const speed = state.isSlow ? 15.0 : 60.0; 
 
         if ( state.moveForward || state.moveBackward ) state.velocity.z -= state.direction.z * speed * delta;
         if ( state.moveLeft || state.moveRight ) state.velocity.x -= state.direction.x * speed * delta;

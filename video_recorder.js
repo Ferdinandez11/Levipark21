@@ -7,27 +7,45 @@ import { deselectObject } from './interaction.js';
 
 let mediaRecorder = null;
 let recordedChunks = [];
+let originalPixelRatio = 1;
 
 // --- GRABACIÓN MANUAL (Modo Paseo) ---
 export function startManualRecording() {
     if (mediaRecorder && mediaRecorder.state === 'recording') return;
 
+    // 1. OPTIMIZACIÓN: Bajar resolución interna para ganar FPS
+    originalPixelRatio = state.renderer.getPixelRatio();
+    state.renderer.setPixelRatio(1); 
+    state.composer.setPixelRatio(1);
+
     const canvas = state.renderer.domElement;
-    const stream = canvas.captureStream(30); // 30 FPS
     
-    // Configuración de calidad
-    const mimeTypes = ['video/webm; codecs=vp9', 'video/webm; codecs=vp8', 'video/webm'];
+    // 2. FLUIDEZ: Capturar a 60 FPS (antes 30)
+    const stream = canvas.captureStream(60); 
+    
+    // Configuración de códec preferente
+    const mimeTypes = [
+        'video/webm; codecs=vp9', 
+        'video/webm; codecs=vp8', 
+        'video/webm'
+    ];
     const selectedMime = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
 
     recordedChunks = [];
+    
+    // 3. BITRATE: Ajustado a 5Mbps para equilibrar calidad/rendimiento
     mediaRecorder = new MediaRecorder(stream, { 
         mimeType: selectedMime,
-        videoBitsPerSecond: 8000000 // 8 Mbps para buena calidad en movimiento
+        videoBitsPerSecond: 5000000 
     });
 
     mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
     
     mediaRecorder.onstop = () => {
+        // Restaurar calidad original al terminar
+        state.renderer.setPixelRatio(originalPixelRatio);
+        state.composer.setPixelRatio(originalPixelRatio);
+
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -38,14 +56,14 @@ export function startManualRecording() {
     };
 
     mediaRecorder.start();
-    showToast("🔴 Grabando... (Pulsa R para parar)", "error"); // Usamos estilo error para rojo
+    showToast("🔴 Grabando a 60FPS... (Pulsa R para parar)", "error");
 }
 
 export function stopManualRecording() {
     if (mediaRecorder && mediaRecorder.state === 'recording') {
         mediaRecorder.stop();
         mediaRecorder = null;
-        showToast("Grabación finalizada. Procesando...", "info");
+        showToast("Procesando video...", "info");
     }
 }
 
@@ -59,7 +77,6 @@ export async function record360Video() {
 
     deselectObject(); 
     const prevGridVis = state.gridHelper.visible;
-    const prevShadowVis = state.shadowPlane.visible;
     
     state.gridHelper.visible = false; 
     state.transformControl.detach();
@@ -83,9 +100,15 @@ export async function record360Video() {
 
     state.controls.enabled = false; 
     
+    // Optimización temporal
+    const oldPixel = state.renderer.getPixelRatio();
+    state.renderer.setPixelRatio(1);
+    state.composer.setPixelRatio(1);
+
     const canvas = state.renderer.domElement;
-    const stream = canvas.captureStream(30); 
-    const mimeTypes = ['video/webm; codecs=vp9', 'video/webm; codecs=vp8', 'video/webm'];
+    const stream = canvas.captureStream(60); // 60 FPS
+    
+    const mimeTypes = ['video/webm; codecs=vp9', 'video/webm'];
     const selectedMime = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
 
     const recorder = new MediaRecorder(stream, { mimeType: selectedMime, videoBitsPerSecond: 5000000 });
@@ -93,6 +116,9 @@ export async function record360Video() {
     recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
     
     recorder.onstop = () => {
+        state.renderer.setPixelRatio(oldPixel);
+        state.composer.setPixelRatio(oldPixel);
+
         const blob = new Blob(chunks, { type: 'video/webm' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a'); a.href = url; a.download = `Video_360_${new Date().toISOString().slice(0,10)}.webm`; a.click();
@@ -112,7 +138,7 @@ export async function record360Video() {
     };
 
     document.getElementById('loading').style.display = 'block';
-    updateLoadingText("Grabando video 360º... Por favor espera.");
+    updateLoadingText("Grabando video 360º suave...");
 
     recorder.start();
     
@@ -130,7 +156,9 @@ export async function record360Video() {
         state.activeCamera.position.y = height;
         state.activeCamera.lookAt(center);
         
-        state.renderer.render(state.scene, state.activeCamera);
+        // Render explícito
+        if (state.renderer.xr.isPresenting) state.renderer.render(state.scene, state.activeCamera); 
+        else state.composer.render();
 
         if (progress < 1) { requestAnimationFrame(animateCamera); } else { recorder.stop(); }
     }

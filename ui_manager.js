@@ -5,7 +5,8 @@ import { toggleDisplay, showToast } from './utils.js';
 import { toggleMeasureMode, toggleFloorMode, clearMeasurements, addPointFromInput, finishFloor, updateFloorFromInput, setFloorColor, updateTextureMapping, updateFloorInfoLabel, undoLastFloorPoint } from './floor.js';
 import { deleteSelected, cloneSelected, snapToFloor, toggleLock, toggleObjectCollision, setGizmoMode } from './interaction.js';
 import { undo, redo, resetScene, saveProject, loadProjectData } from './history.js';
-import { filterCatalog } from './catalog.js';
+// IMPORT ACTUALIZADO:
+import { openCatalogModal, filterCatalogVisual, renderLines } from './catalog.js';
 import { toggleFenceMode, finishFence } from './fence.js';
 import { generateDossier, exportToMobile } from './exporters.js';
 import { exportDXF } from './dxf_exporter.js';
@@ -189,7 +190,25 @@ export function initDOMEvents() {
     bindClick('mode-rotate', ()=>setGizmoMode('rotate'));
     bindClick('mode-scale', ()=>setGizmoMode('scale'));
 
-    document.getElementById('catalog-search').addEventListener('input', (e) => filterCatalog(e.target.value));
+    // --- NUEVO: Eventos del Catálogo Visual ---
+    
+    const btnOpenCat = document.getElementById('btn-open-catalog');
+    if (btnOpenCat) {
+        btnOpenCat.addEventListener('click', () => {
+            openCatalogModal();
+        });
+    }
+
+    const searchInput = document.getElementById('catalog-search-visual');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => filterCatalogVisual(e.target.value));
+    }
+    
+    const btnBackCat = document.getElementById('btn-catalog-back');
+    if(btnBackCat) {
+        btnBackCat.addEventListener('click', () => renderLines());
+    }
+
     bindClick('btn-show-list', updateAndShowList);
 
     bindClick('btn-fence', toggleFenceMode);
@@ -213,4 +232,3 @@ export function initDOMEvents() {
     bindClick('btn-save-cloud', saveProjectToCloud);
     bindClick('btn-load-cloud', loadUserProjects);
 }
-// --- END OF FILE ui_manager.js ---
