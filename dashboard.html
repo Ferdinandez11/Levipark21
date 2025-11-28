@@ -1,0 +1,177 @@
+<!-- dashboard.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Levipark21 - Área Cliente</title>
+    <!-- Favicon fix para evitar el error 404 (opcional) -->
+    <link rel="icon" href="data:,">
+    <style>
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #fff; display: flex; height: 100vh; overflow: hidden; }
+        
+        /* Sidebar */
+        .sidebar { width: 250px; background: #111; border-right: 1px solid #333; display: flex; flex-direction: column; padding: 20px; }
+        .logo { font-size: 24px; font-weight: bold; color: #4a90e2; margin-bottom: 40px; display: flex; align-items: center; gap: 10px; }
+        .menu-item { padding: 12px 15px; margin-bottom: 5px; border-radius: 8px; cursor: pointer; color: #aaa; transition: 0.2s; text-decoration: none; display: flex; align-items: center; gap: 10px; }
+        .menu-item:hover, .menu-item.active { background: rgba(74, 144, 226, 0.15); color: #fff; }
+        .user-profile { margin-top: auto; padding-top: 20px; border-top: 1px solid #333; display: flex; align-items: center; gap: 10px; }
+        
+        /* Main Content */
+        .main { flex: 1; padding: 40px; overflow-y: auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .btn-new { background: #27ae60; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; display: flex; align-items: center; gap: 8px; border: none; cursor: pointer; transition: 0.2s; }
+        .btn-new:hover { background: #219150; transform: translateY(-2px); }
+
+        /* Grid de Proyectos */
+        .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .project-card { background: #252525; border: 1px solid #333; border-radius: 12px; overflow: hidden; transition: 0.3s; position: relative; }
+        .project-card:hover { transform: translateY(-5px); border-color: #4a90e2; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        .card-img { height: 160px; background: #333; display: flex; align-items: center; justify-content: center; color: #555; font-size: 40px; background-size: cover; background-position: center; }
+        .card-body { padding: 15px; }
+        .card-title { font-weight: bold; margin-bottom: 5px; font-size: 16px; }
+        .card-meta { font-size: 12px; color: #888; display: flex; justify-content: space-between; margin-bottom: 15px; }
+        .card-actions { display: flex; gap: 10px; }
+        .btn-card { flex: 1; padding: 8px; border-radius: 4px; border: 1px solid #444; background: transparent; color: #ddd; cursor: pointer; font-size: 13px; text-align: center; text-decoration: none; }
+        .btn-card:hover { background: #333; color: #fff; }
+        .btn-edit { border-color: #4a90e2; color: #4a90e2; }
+        .btn-edit:hover { background: #4a90e2; color: white; }
+
+        /* Estado Vacio */
+        .empty-state { text-align: center; padding: 50px; color: #666; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="logo"><span>🏟️</span> Levipark Hub</div>
+        <a href="#" class="menu-item active">📂 Mis Proyectos</a>
+        <a href="#" class="menu-item" onclick="alert('Próximamente: Historial de pedidos y facturas')">📦 Mis Pedidos</a>
+        <a href="#" class="menu-item" onclick="alert('Próximamente: Gestión de incidencias')">🛠️ Incidencias</a>
+        
+        <div class="user-profile">
+            <div style="width: 35px; height: 35px; background: #4a90e2; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;" id="user-avatar">U</div>
+            <div>
+                <div style="font-size: 14px; font-weight: bold;" id="user-name">Cargando...</div>
+                <div style="font-size: 11px; color: #888; cursor: pointer;" id="btn-logout">Cerrar Sesión</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="header">
+            <h1>Mis Proyectos</h1>
+            <button class="btn-new" onclick="window.location.href='index.html'">➕ Nuevo Diseño</button>
+        </div>
+
+        <div id="projects-container" class="projects-grid">
+            <!-- Aquí se inyectan las tarjetas con JS -->
+        </div>
+    </div>
+
+    <!-- SCRIPT CORREGIDO: Importamos todo como módulo directamente -->
+    <script type="module">
+        // 1. Importaciones directas (Esto soluciona el error de 'undefined' y 'module')
+        import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+        import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
+        
+        // 2. Inicializar Supabase
+        const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        async function init() {
+            // Verificar Sesión
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                // Si no hay sesión, volver al login
+                window.location.href = 'index.html'; 
+                return;
+            }
+
+            // Cargar Perfil
+            const user = session.user;
+            // Intentamos cargar perfil, si falla no pasa nada grave, usamos email
+            const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+            
+            const displayName = profile?.company_name || user.email.split('@')[0];
+            document.getElementById('user-name').innerText = displayName;
+            document.getElementById('user-avatar').innerText = displayName[0].toUpperCase();
+
+            // Cargar Proyectos
+            loadProjects();
+
+            // Logout
+            document.getElementById('btn-logout').onclick = async () => {
+                await supabase.auth.signOut();
+                window.location.href = 'index.html';
+            };
+        }
+
+        async function loadProjects() {
+            const container = document.getElementById('projects-container');
+            container.innerHTML = '<div style="color:#888">Cargando proyectos...</div>';
+
+            // Pedimos los proyectos del usuario actual
+            const { data: projects, error } = await supabase
+                .from('projects')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error("Error Supabase:", error);
+                container.innerHTML = `<div style="color:red">Error cargando proyectos. Revisa la consola.</div>`;
+                return;
+            }
+
+            container.innerHTML = "";
+
+            if (!projects || projects.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <h2>Aún no tienes proyectos</h2>
+                        <p>Empieza diseñando tu primer parque infantil.</p>
+                        <br>
+                        <button class="btn-new" onclick="window.location.href='index.html'" style="margin:0 auto; width: fit-content;">Comenzar Ahora</button>
+                    </div>`;
+                return;
+            }
+
+            projects.forEach(p => {
+                // Generar URL para editar (pasa el ID)
+                const editUrl = `index.html?project_id=${p.id}`;
+                const date = new Date(p.created_at).toLocaleDateString();
+                const price = (p.total_price || 0).toLocaleString();
+
+                const html = `
+                    <div class="project-card">
+                        <div class="card-img" style="background-image: url('assets/img/placeholder_park.jpg'); background-color:#333;">🏞️</div>
+                        <div class="card-body">
+                            <div class="card-title">${p.name}</div>
+                            <div class="card-meta">
+                                <span>📅 ${date}</span>
+                                <span style="color: #4a90e2; font-weight:bold;">${price} €</span>
+                            </div>
+                            <div class="card-actions">
+                                <a href="${editUrl}" class="btn-card btn-edit">✏️ Editar</a>
+                                <button class="btn-card" style="color:#e74c3c; border-color:#552222" onclick="window.deleteProject('${p.id}')">🗑️</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += html;
+            });
+        }
+
+        // Función global para borrar (conectada al onclick del HTML)
+        window.deleteProject = async (id) => {
+            if(!confirm("¿Seguro que quieres borrar este proyecto?")) return;
+            const { error } = await supabase.from('projects').delete().eq('id', id);
+            
+            if(error) alert("Error al borrar: " + error.message);
+            else loadProjects(); // Recargar lista
+        };
+
+        // Arrancar
+        init();
+    </script>
+</body>
+</html>

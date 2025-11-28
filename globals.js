@@ -50,6 +50,7 @@ const internalState = {
     // --- USUARIO Y NUBE ---
     currentUser: null,
     userProfile: null,
+    currentProjectId: null,
     projectToLoad: null,
 
     // --- GESTIÓN DE MEMORIA Y ASSETS ---

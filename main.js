@@ -1,5 +1,3 @@
-// --- START OF FILE main.js ---
-
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
@@ -23,6 +21,7 @@ import { saveHistory, saveToLocalStorage, loadProjectData } from './history.js';
 import { addFencePoint, updateFencePreview, toggleFenceMode } from './fence.js';
 import { initDOMEvents } from './ui_manager.js';
 import { toggleWalkMode, toggleRecordingState } from './app_actions.js';
+import { record360Video } from './video_recorder.js';
 
 let dragStartData = { pos: new THREE.Vector3(), rot: new THREE.Euler(), scale: new THREE.Vector3() };
 let reticle;
@@ -123,24 +122,62 @@ async function init() {
     window.addEventListener('env-changed', updateSunPosition);
     window.addEventListener('snap-changed', updateSnapSettings);
 
+    initDOMEvents();
+    setupEventListeners(); 
+    preloadLogo(LOGO_URL, state);
+
+    // --- LOGICA DE CARGA INICIAL (QR, DASHBOARD o LOCAL) ---
     const urlParams = new URLSearchParams(window.location.search);
     const compressedData = urlParams.get('data');
+    const projectId = urlParams.get('project_id'); // ID desde el Dashboard
+
+    // Prioridad 1: Carga desde QR Móvil
     if (compressedData) {
         document.getElementById('loading').style.display = 'block';
         try {
             const jsonString = window.LZString.decompressFromEncodedURIComponent(compressedData);
-            if(jsonString) { loadProjectData(JSON.parse(jsonString)); window.history.replaceState({}, document.title, window.location.pathname); showToast('Proyecto móvil cargado', 'success'); }
+            if(jsonString) { 
+                loadProjectData(JSON.parse(jsonString)); 
+                window.history.replaceState({}, document.title, window.location.pathname); 
+                showToast('Proyecto móvil cargado', 'success'); 
+            }
         } catch (err) { console.error(err); showToast('Error al cargar proyecto móvil', 'error'); }
         document.getElementById('loading').style.display = 'none';
+        
+    // Prioridad 2: Carga desde Dashboard (Nube)
+    } else if (projectId) {
+        console.log("Levipark: Modo Edición detectado. ID:", projectId);
+        // Esperamos un poco para asegurar que initSupabase haya restaurado la sesión
+        setTimeout(() => {
+            import('./backend.js').then(module => {
+                // Hacemos polling hasta encontrar el usuario (max 10 segundos)
+                let attempts = 0;
+                const checkLogin = setInterval(() => {
+                    attempts++;
+                    if (state.currentUser) {
+                        clearInterval(checkLogin);
+                        module.loadProjectById(projectId);
+                    } else if (attempts > 20) {
+                        clearInterval(checkLogin);
+                        showToast("Inicia sesión para editar este proyecto", "info");
+                        document.getElementById('auth-panel').style.display = 'flex';
+                    }
+                }, 500);
+            });
+        }, 500);
+        await loadSheetData(); // Cargamos catálogo igualmente
+
+    // Prioridad 3: Carga normal (Autosave local)
     } else {
         await loadSheetData();
-        const s = localStorage.getItem('levipark_autosave'); if(s) { try { loadProjectData(JSON.parse(s)); } catch(e){} }
+        const s = localStorage.getItem('levipark_autosave'); 
+        if(s) { try { loadProjectData(JSON.parse(s)); } catch(e){} }
     }
 
-    initDOMEvents();
-    setupEventListeners(); 
-    preloadLogo(LOGO_URL, state);
+    // Loop de autoguardado local
     setInterval(saveToLocalStorage, 30000);
+    
+    // Loop de renderizado
     state.renderer.setAnimationLoop(render);
 }
 
@@ -327,8 +364,6 @@ function onWindowResize() {
 function render(timestamp, frame) { 
     if (state.isWalkMode) {
         const time = performance.now();
-        
-        // FIX: Limitar delta máximo para evitar saltos si el PC se congela (max 0.1s)
         const delta = Math.min(( time - state.prevTime ) / 1000, 0.1);
 
         state.velocity.x -= state.velocity.x * 10.0 * delta;
@@ -358,4 +393,3 @@ function render(timestamp, frame) {
     if (state.renderer.xr.isPresenting) state.renderer.render(state.scene, state.activeCamera); 
     else state.composer.render(); 
 }
-// --- END OF FILE main.js ---
