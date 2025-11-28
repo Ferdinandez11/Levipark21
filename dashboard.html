@@ -45,8 +45,8 @@
 
     <div class="sidebar">
         <div class="logo"><span>🏟️</span> Levipark Hub</div>
-        <a href="#" class="menu-item active">📂 Mis Proyectos</a>
-        <a href="#" class="menu-item" onclick="alert('Próximamente: Historial de pedidos y facturas')">📦 Mis Pedidos</a>
+        <a id="nav-projects" class="menu-item active">📂 Mis Proyectos</a>
+        <a id="nav-orders" class="menu-item">📦 Mis Pedidos</a>
         <a href="#" class="menu-item" onclick="alert('Próximamente: Gestión de incidencias')">🛠️ Incidencias</a>
         
         <div class="user-profile">
@@ -66,6 +66,23 @@
 
         <div id="projects-container" class="projects-grid">
             <!-- Aquí se inyectan las tarjetas con JS -->
+        </div>
+                <div id="orders-container" style="display: none;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 1px solid #444; color: #888;">
+                        <th style="padding: 10px;">Referencia</th>
+                        <th style="padding: 10px;">Proyecto</th>
+                        <th style="padding: 10px;">Fecha</th>
+                        <th style="padding: 10px;">Estado</th>
+                        <th style="padding: 10px;">Total</th>
+                        <th style="padding: 10px;">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="orders-list">
+                    <!-- Aquí se inyectarán los pedidos -->
+                </tbody>
+            </table>
         </div>
     </div>
 
@@ -133,12 +150,11 @@
             }
 
             projects.forEach(p => {
-                // Generar URL para editar (pasa el ID)
                 const editUrl = `index.html?project_id=${p.id}`;
                 const date = new Date(p.updated_at || p.created_at).toLocaleDateString();
-                const price = (p.total_price || 0).toLocaleString();
+                const price = (p.total_price || 0).toLocaleString(); // Solo para mostrar
+                const rawPrice = p.total_price || 0; // Para pasar a la función
 
-                // Definimos la imagen de fondo. Si existe, añadimos un timestamp para evitar caché viejo
                 const timeParam = p.updated_at ? `?t=${new Date(p.updated_at).getTime()}` : '';
                 const bgImage = p.thumbnail_url 
                     ? `url('${p.thumbnail_url}${timeParam}')` 
@@ -159,7 +175,12 @@
                             </div>
                             <div class="card-actions">
                                 <a href="${editUrl}" class="btn-card btn-edit">✏️ Editar</a>
-                                <button class="btn-card" style="color:#e74c3c; border-color:#552222" onclick="window.deleteProject('${p.id}')">🗑️</button>
+                                <!-- NUEVO BOTÓN DE SOLICITAR -->
+                                <button class="btn-card" style="background: #e67e22; border-color: #d35400; color: white;" 
+                                    onclick="window.requestQuote('${p.id}', '${p.name}', ${rawPrice})">
+                                    🛒 Solicitar
+                                </button>
+                                <button class="btn-card" style="color:#e74c3c; border-color:#552222; flex:0;" onclick="window.deleteProject('${p.id}')">🗑️</button>
                             </div>
                         </div>
                     </div>
@@ -167,6 +188,74 @@
                 container.innerHTML += html;
             });
         }
+
+        async function loadOrders() {
+            const tbody = document.getElementById('orders-list');
+            tbody.innerHTML = '<tr><td colspan="6" style="padding:20px; text-align:center; color:#888;">Cargando pedidos...</td></tr>';
+
+            // Pedir pedidos a Supabase + Nombre del proyecto asociado
+            const { data: orders, error } = await supabase
+                .from('orders')
+                .select('*, projects(name)') // Join mágico de Supabase
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error(error);
+                return;
+            }
+
+            tbody.innerHTML = "";
+            
+            if (orders.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="padding:40px; text-align:center; color:#666;">No has realizado ningún pedido aún.</td></tr>';
+                return;
+            }
+
+            orders.forEach(o => {
+                // Estilo del estado
+                let statusColor = '#aaa';
+                if(o.status === 'fabricacion') statusColor = '#f1c40f'; // Amarillo
+                if(o.status === 'enviado') statusColor = '#3498db'; // Azul
+                if(o.status === 'entregado') statusColor = '#27ae60'; // Verde
+
+                const date = new Date(o.created_at).toLocaleDateString();
+                const projectName = o.projects?.name || "Diseño eliminado";
+                
+                const html = `
+                    <tr style="border-bottom: 1px solid #333;">
+                        <td style="padding: 15px; font-weight:bold;">${o.order_ref || 'PED-???'}</td>
+                        <td style="padding: 15px;">${projectName}</td>
+                        <td style="padding: 15px;">${date}</td>
+                        <td style="padding: 15px;"><span style="color:${statusColor}; border:1px solid ${statusColor}; padding:2px 8px; border-radius:10px; font-size:12px; text-transform:uppercase;">${o.status}</span></td>
+                        <td style="padding: 15px;">${o.total_price.toLocaleString()} €</td>
+                        <td style="padding: 15px;">
+                            <button class="btn-card" style="width:auto; padding:5px 10px;">📄 Factura</button>
+                        </td>
+                    </tr>
+                `;
+                tbody.innerHTML += html;
+            });
+        }
+
+        // LOGICA DE PESTAÑAS (Añadir esto en la función init() o al final)
+        document.getElementById('nav-projects').onclick = () => {
+            document.getElementById('projects-container').style.display = 'grid';
+            document.getElementById('orders-container').style.display = 'none';
+            document.getElementById('nav-projects').classList.add('active');
+            document.getElementById('nav-orders').classList.remove('active');
+            document.querySelector('.header h1').innerText = "Mis Proyectos";
+            document.querySelector('.btn-new').style.display = 'flex'; // Mostrar botón nuevo
+        };
+
+        document.getElementById('nav-orders').onclick = () => {
+            document.getElementById('projects-container').style.display = 'none';
+            document.getElementById('orders-container').style.display = 'block';
+            document.getElementById('nav-projects').classList.remove('active');
+            document.getElementById('nav-orders').classList.add('active');
+            document.querySelector('.header h1').innerText = "Mis Pedidos";
+            document.querySelector('.btn-new').style.display = 'none'; // Ocultar botón nuevo en pedidos
+            loadOrders(); // Cargar datos
+        };
 
         // Función global para borrar
         window.deleteProject = async (id) => {
@@ -176,7 +265,38 @@
             if(error) alert("Error al borrar: " + error.message);
             else loadProjects(); // Recargar lista
         };
+        
+        // Función global para Solicitar Presupuesto
+        window.requestQuote = async (projectId, projectName, price) => {
+            // 1. Confirmación sencilla
+            if(!confirm(`¿Quieres solicitar un presupuesto formal para "${projectName}" por valor de ${price.toLocaleString()} €?`)) return;
 
+            // 2. Generar referencia aleatoria (Ej: PED-4921)
+            const ref = 'PED-' + Math.floor(1000 + Math.random() * 9000);
+
+            // 3. Insertar en Supabase
+            // Necesitamos el user_id. Lo sacamos de la sesión actual.
+            const { data: { session } } = await supabase.auth.getSession();
+            
+            const { error } = await supabase.from('orders').insert([{
+                user_id: session.user.id,
+                project_id: projectId,
+                order_ref: ref,
+                total_price: price,
+                status: 'pendiente' // Estado inicial
+            }]);
+
+            if (error) {
+                alert("Error al solicitar: " + error.message);
+            } else {
+                // 4. Éxito: Cambiar a la pestaña de Pedidos automáticamente
+                alert(`¡Solicitud ${ref} creada correctamente!`);
+                
+                // Simular click en la pestaña "Mis Pedidos"
+                document.getElementById('nav-orders').click();
+            }
+        };
+       
         // Arrancar
         init();
     </script>
